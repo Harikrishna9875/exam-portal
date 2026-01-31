@@ -4,28 +4,34 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { motion } from "framer-motion";
 
 import Layout from "../components/Layout";
-import Card from "../components/ui/Card";
 import Badge from "../components/ui/Badge";
 
 function StudentResults() {
   const [results, setResults] = useState([]);
   const [examMap, setExamMap] = useState({});
   const [roundMap, setRoundMap] = useState({});
+  const [loading, setLoading] = useState(true);
 
+  /* ---------------- FETCH META ---------------- */
   const fetchMeta = async () => {
     const examsSnap = await getDocs(collection(db, "exams"));
     const roundsSnap = await getDocs(collection(db, "rounds"));
 
     const eMap = {};
-    examsSnap.docs.forEach(d => (eMap[d.id] = d.data().title));
+    examsSnap.docs.forEach(d => {
+      eMap[d.id] = d.data().title;
+    });
 
     const rMap = {};
-    roundsSnap.docs.forEach(d => (rMap[d.id] = d.data().roundNumber));
+    roundsSnap.docs.forEach(d => {
+      rMap[d.id] = d.data().roundNumber;
+    });
 
     setExamMap(eMap);
     setRoundMap(rMap);
   };
 
+  /* ---------------- FETCH RESULTS ---------------- */
   const fetchResults = async () => {
     const q = query(
       collection(db, "attempts"),
@@ -33,6 +39,7 @@ function StudentResults() {
     );
     const snap = await getDocs(q);
     setResults(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -42,30 +49,95 @@ function StudentResults() {
 
   return (
     <Layout title="My Exam Results">
-      {results.map((r, i) => (
-        <motion.div
-          key={r.id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.1 }}
-        >
-          <Card>
-            <h3>{examMap[r.examId]}</h3>
+      {loading && <p>Loading your results...</p>}
 
-            <p><b>Round:</b> Round {roundMap[r.roundId]}</p>
-            <p><b>Total Questions:</b> {r.totalQuestions}</p>
-            <p><b>Attempted:</b> {r.attempted}</p>
-            <p><b>Correct:</b> {r.correct}</p>
-            <p><b>Accuracy:</b> {r.percentile}%</p>
+      {!loading && results.length === 0 && (
+        <p>You haven’t attempted any exams yet.</p>
+      )}
 
+      {!loading &&
+        results.map((r, index) => (
+          <motion.div
+            key={r.id}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.08 }}
+            style={{
+              background: "#ffffff",
+              borderRadius: 10,
+              padding: 20,
+              marginBottom: 16,
+              boxShadow: "0 6px 16px rgba(0,0,0,0.08)",
+              borderLeft: r.qualified
+                ? "6px solid #22c55e"
+                : "6px solid #dc2626",
+            }}
+          >
+            {/* Header */}
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>
+                {examMap[r.examId] || "Exam"}
+              </h3>
+              <small style={{ color: "#555" }}>
+                Round {roundMap[r.roundId] || "-"}
+              </small>
+            </div>
+
+            {/* Stats */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                gap: 12,
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <b>Total</b>
+                <div>{r.totalQuestions}</div>
+              </div>
+              <div>
+                <b>Attempted</b>
+                <div>{r.attempted}</div>
+              </div>
+              <div>
+                <b>Correct</b>
+                <div>{r.correct}</div>
+              </div>
+              <div>
+                <b>Accuracy</b>
+                <div>{r.percentile}%</div>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div
+              style={{
+                height: 10,
+                background: "#e5e7eb",
+                borderRadius: 6,
+                overflow: "hidden",
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${r.percentile}%`,
+                  background: r.qualified ? "#22c55e" : "#dc2626",
+                  transition: "width 0.4s ease",
+                }}
+              />
+            </div>
+
+            {/* Status */}
             {r.qualified ? (
-              <Badge text="Qualified 🎉" type="success" />
+              <Badge text="Qualified" type="success" />
             ) : (
-              <Badge text="Not Qualified ❌" type="fail" />
+              <Badge text="Not Qualified" type="fail" />
             )}
-          </Card>
-        </motion.div>
-      ))}
+          </motion.div>
+        ))}
     </Layout>
   );
 }
