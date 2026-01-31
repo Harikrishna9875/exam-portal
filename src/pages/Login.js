@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
+
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -38,6 +39,21 @@ if (role === "admin") {
     }
   };
 
+  const handleForgotPassword = async () => {
+  if (!email) {
+    alert("Please enter your email first");
+    return;
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, email);
+    alert("Password reset email sent. Check your inbox.");
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+
   return (
     <div style={{ padding: 20 }}>
       <h2>Login</h2>
@@ -57,6 +73,13 @@ if (role === "admin") {
       <br /><br />
 
       <button onClick={handleLogin}>Login</button>
+      <button onClick={handleLogin}>Login</button>
+
+<br /><br />
+<button onClick={handleForgotPassword}>
+  Forgot Password?
+</button>
+
 
       {error && <p style={{ color: "red" }}>{error}</p>}
     </div>
