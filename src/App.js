@@ -10,6 +10,9 @@ import StudentExam from "./pages/StudentExam";
 import StudentResults from "./pages/StudentResults";
 import AdminResults from "./pages/AdminResults";
 import StudentCertificate from "./pages/StudentCertificate";
+import AdminCreateTest from "./pages/AdminCreateTest";
+
+
 
 
 
@@ -61,7 +64,7 @@ function App() {
     </ProtectedRoute>
   }
 />
-
+<Route path="/admin/create-test" element={<AdminCreateTest />} />
 
 
 
