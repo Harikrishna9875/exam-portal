@@ -6,84 +6,66 @@ import {
   query,
   where,
   addDoc,
+  updateDoc,
+  doc,
 } from "firebase/firestore";
 
 function StudentExam() {
-  /* ---------------- STATE ---------------- */
   const [exams, setExams] = useState([]);
   const [rounds, setRounds] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
 
   const [selectedExamId, setSelectedExamId] = useState("");
-  const [selectedRoundId, setSelectedRoundId] = useState("");
   const [selectedRound, setSelectedRound] = useState(null);
 
+  const [alreadyAttempted, setAlreadyAttempted] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef(null);
 
-  const [paymentDone, setPaymentDone] = useState(false);
-
-  /* ---------------- FETCH PUBLIC EXAMS ---------------- */
-  const fetchPublicExams = async () => {
-    const q = query(
-      collection(db, "exams"),
-      where("isPublic", "==", true)
-    );
-    const snapshot = await getDocs(q);
-    setExams(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+  /* ---------------- FETCH EXAMS ---------------- */
+  const fetchExams = async () => {
+    const q = query(collection(db, "exams"), where("isPublic", "==", true));
+    const snap = await getDocs(q);
+    setExams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
 
   /* ---------------- FETCH ROUNDS ---------------- */
   const fetchRounds = async (examId) => {
-    const q = query(
-      collection(db, "rounds"),
-      where("examId", "==", examId),
-      where("isActive", "==", true)
-    );
-    const snapshot = await getDocs(q);
-    setRounds(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const q = query(collection(db, "rounds"), where("examId", "==", examId));
+    const snap = await getDocs(q);
+    setRounds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
 
-  /* ---------------- CHECK PAYMENT ---------------- */
-  const checkPayment = async (roundId) => {
+  /* ---------------- CHECK ATTEMPT ---------------- */
+  const checkAttempt = async (roundId) => {
     const q = query(
-      collection(db, "payments"),
+      collection(db, "attempts"),
       where("roundId", "==", roundId),
-      where("userId", "==", auth.currentUser.uid),
-      where("status", "==", "success")
+      where("userId", "==", auth.currentUser.uid)
     );
-    const snapshot = await getDocs(q);
-    return !snapshot.empty;
+    const snap = await getDocs(q);
+    return !snap.empty;
   };
 
-  /* ---------------- MOCK PAYMENT ---------------- */
-  const handleMockPayment = async () => {
-    await addDoc(collection(db, "payments"), {
-      userId: auth.currentUser.uid,
-      examId: selectedExamId,
-      roundId: selectedRoundId,
-      amount: 100,
-      status: "success",
-      paidAt: new Date(),
-    });
+  /* ---------------- LOAD QUESTIONS ---------------- */
+  const startExam = async (round) => {
+    if (await checkAttempt(round.id)) {
+      setAlreadyAttempted(true);
+      return;
+    }
 
-    setPaymentDone(true);
-    alert("Payment successful (mock)");
-  };
-
-  /* ---------------- FETCH QUESTIONS ---------------- */
-  const fetchQuestions = async (round) => {
+    setAlreadyAttempted(false);
     setSelectedRound(round);
+    setAnswers({});
+    setSubmitted(false);
     setTimeLeft(round.durationMinutes * 60);
 
-    const q = query(
-      collection(db, "questions"),
-      where("roundId", "==", round.id)
-    );
-    const snapshot = await getDocs(q);
-    setQuestions(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const q = query(collection(db, "questions"), where("roundId", "==", round.id));
+    const snap = await getDocs(q);
+    setQuestions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
 
   /* ---------------- TIMER ---------------- */
@@ -94,125 +76,119 @@ function StudentExam() {
     }
 
     timerRef.current = setInterval(() => {
-      setTimeLeft((t) => t - 1);
+      setTimeLeft(t => t - 1);
     }, 1000);
 
     return () => clearInterval(timerRef.current);
   }, [timeLeft, submitted]);
 
-  /* ---------------- INIT ---------------- */
+  /* ---------------- SCORE ---------------- */
+  const calculateScore = () => {
+    let score = 0;
+    questions.forEach(q => {
+      if (answers[q.id] === q.correctOptionIndex) score++;
+    });
+    return score;
+  };
+
+  /* ---------------- SUBMIT ---------------- */
+  const handleSubmit = async (auto = false) => {
+    if (submitted) return;
+
+    const score = calculateScore();
+
+    const attemptRef = await addDoc(collection(db, "attempts"), {
+      userId: auth.currentUser.uid,
+      examId: selectedExamId,
+      roundId: selectedRound.id,
+      answers,
+      score,
+      autoSubmitted: auto,
+      submittedAt: new Date(),
+    });
+
+    // Percentile calculation
+    const q = query(collection(db, "attempts"), where("roundId", "==", selectedRound.id));
+    const snap = await getDocs(q);
+    const attempts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const sorted = [...attempts].sort((a, b) => a.score - b.score);
+    const rank = sorted.findIndex(a => a.id === attemptRef.id);
+    const percentile = Math.round((rank / sorted.length) * 100);
+
+    const qualified = percentile >= selectedRound.cutoffPercentile;
+
+    await updateDoc(doc(db, "attempts", attemptRef.id), {
+      percentile,
+      qualified,
+    });
+
+    setSubmitted(true);
+    clearInterval(timerRef.current);
+    alert(auto ? "Time up! Auto-submitted" : "Exam submitted");
+  };
+
   useEffect(() => {
-    fetchPublicExams();
+    fetchExams();
   }, []);
 
-  const formatTime = (s) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec < 10 ? "0" : ""}${sec}`;
-  };
+  const formatTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   /* ---------------- UI ---------------- */
   return (
     <div style={{ padding: 20 }}>
       <h2>Attempt Exam</h2>
 
-      {/* -------- SELECT EXAM -------- */}
-      <select
-        value={selectedExamId}
-        onChange={(e) => {
-          const id = e.target.value;
-          setSelectedExamId(id);
-          setSelectedRoundId("");
-          setSelectedRound(null);
-          setQuestions([]);
-          setAnswers({});
-          setSubmitted(false);
-          setPaymentDone(false);
-          fetchRounds(id);
-        }}
-      >
-        <option value="">Select Exam</option>
-        {exams.map((e) => (
-          <option key={e.id} value={e.id}>
-            {e.title}
-          </option>
-        ))}
+      <select onChange={e => {
+        setSelectedExamId(e.target.value);
+        fetchRounds(e.target.value);
+        setQuestions([]);
+      }}>
+        <option>Select Exam</option>
+        {exams.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
       </select>
 
       <hr />
 
-      {/* -------- SELECT ROUND -------- */}
-      <select
-        value={selectedRoundId}
-        onChange={async (e) => {
-          const id = e.target.value;
-          setSelectedRoundId(id);
-          setQuestions([]);
-          setAnswers({});
-          setSubmitted(false);
-
-          const round = rounds.find((r) => r.id === id);
-          if (!round) return;
-
-          if (round.isPaid) {
-            const paid = await checkPayment(id);
-            setPaymentDone(paid);
-          } else {
-            setPaymentDone(true);
-          }
-
-          fetchQuestions(round);
-        }}
-      >
-        <option value="">Select Round</option>
-        {rounds.map((r) => (
-          <option key={r.id} value={r.id}>
-            Round {r.roundNumber} ({r.isPaid ? "Paid" : "Free"})
-          </option>
-        ))}
-      </select>
-
-      <hr />
-
-      {/* -------- PAYMENT BLOCK -------- */}
-      {selectedRound?.isPaid && !paymentDone && (
-        <div style={{ border: "1px solid red", padding: 10 }}>
-          <p>This is a paid round.</p>
-          <button onClick={handleMockPayment}>
-            Pay ₹100 (Mock)
-          </button>
+      {rounds.map(r => (
+        <div key={r.id} style={{ border: "1px solid #ccc", padding: 10 }}>
+          <p>Round {r.roundNumber}</p>
+          <button onClick={() => startExam(r)}>Attempt</button>
         </div>
+      ))}
+
+      {alreadyAttempted && (
+        <p style={{ color: "red" }}>
+          You already attempted this round
+        </p>
       )}
 
-      {/* -------- TIMER -------- */}
-      {paymentDone && timeLeft > 0 && !submitted && (
+      {selectedRound && timeLeft > 0 && !submitted && (
         <h3>Time Left: {formatTime(timeLeft)}</h3>
       )}
 
-      {/* -------- QUESTIONS -------- */}
-      {paymentDone &&
-        questions.map((q, i) => (
-          <div key={q.id}>
-            <p><b>Q{i + 1}:</b> {q.questionText}</p>
-            {q.options.map((opt, idx) => (
-              <div key={idx}>
-                <input
-                  type="radio"
-                  name={q.id}
-                  checked={answers[q.id] === idx}
-                  onChange={() =>
-                    setAnswers({ ...answers, [q.id]: idx })
-                  }
-                />
-                {opt}
-              </div>
-            ))}
-          </div>
-        ))}
+      {questions.map((q, i) => (
+        <div key={q.id}>
+          <p><b>Q{i + 1}:</b> {q.questionText}</p>
+          {q.options.map((opt, idx) => (
+            <div key={idx}>
+              <input
+                type="radio"
+                name={q.id}
+                checked={answers[q.id] === idx}
+                onChange={() => setAnswers({ ...answers, [q.id]: idx })}
+              />
+              {opt}
+            </div>
+          ))}
+        </div>
+      ))}
 
-      {!paymentDone && selectedRound && (
-        <p>Complete payment to start exam.</p>
+      {questions.length > 0 && !submitted && (
+        <button onClick={() => handleSubmit(false)}>Submit Exam</button>
       )}
+
+      {submitted && <p>Exam submitted successfully</p>}
     </div>
   );
 }
