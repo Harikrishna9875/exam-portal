@@ -5,6 +5,8 @@ import Signup from "./pages/Signup";
 import AdminDashboard from "./pages/AdminDashboard";
 import StudentDashboard from "./pages/StudentDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AdminQuestions from "./pages/AdminQuestions";
+
 
 function App() {
   return (
@@ -12,6 +14,15 @@ function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        
+        <Route path="/admin/questions"
+  element={
+    <ProtectedRoute allowedRole="admin">
+      <AdminQuestions />
+    </ProtectedRoute>
+  }
+/>
+
 
 
         <Route
