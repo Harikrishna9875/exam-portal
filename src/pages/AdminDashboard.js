@@ -178,6 +178,10 @@ function AdminDashboard() {
       <h3>My Exams</h3>
 
       {loadingExams && <p>Loading exams...</p>}
+      <a href="/admin/results">
+  <button>View Exam Results</button>
+</a>
+
 
       {!loadingExams && exams.length === 0 && (
         <p>No exams created yet</p>

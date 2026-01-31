@@ -8,6 +8,8 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import AdminQuestions from "./pages/AdminQuestions";
 import StudentExam from "./pages/StudentExam";
 import StudentResults from "./pages/StudentResults";
+import AdminResults from "./pages/AdminResults";
+
 
 
 
@@ -26,22 +28,31 @@ function App() {
     </ProtectedRoute>
   }
 />
-<Route
-  path="/student/exam"
+       <Route
+         path="/student/exam"
+         element={
+           <ProtectedRoute allowedRole="student">
+             <StudentExam />
+           </ProtectedRoute>
+         }
+       />
+       <Route
+         path="/student/results"
+         element={
+           <ProtectedRoute allowedRole="student">
+             <StudentResults />
+           </ProtectedRoute>
+         }
+       />
+      <Route
+  path="/admin/results"
   element={
-    <ProtectedRoute allowedRole="student">
-      <StudentExam />
+    <ProtectedRoute allowedRole="admin">
+      <AdminResults />
     </ProtectedRoute>
   }
 />
-<Route
-  path="/student/results"
-  element={
-    <ProtectedRoute allowedRole="student">
-      <StudentResults />
-    </ProtectedRoute>
-  }
-/>
+
 
 
 
