@@ -26,9 +26,17 @@ function StudentExam() {
   const [submitted, setSubmitted] = useState(false);
 
   const [currentIndex, setCurrentIndex] = useState(0);
-
   const [timeLeft, setTimeLeft] = useState(0);
+
   const timerRef = useRef(null);
+  const violationCount = useRef(0);
+
+  /* ---------------- FULLSCREEN ---------------- */
+  const enterFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  };
 
   /* ---------------- FETCH EXAMS ---------------- */
   useEffect(() => {
@@ -72,12 +80,13 @@ function StudentExam() {
       return;
     }
 
-    setAlreadyAttempted(false);
     setSelectedRound(round);
     setSubmitted(false);
     setAnswers({});
     setCurrentIndex(0);
     setTimeLeft(round.durationMinutes * 60);
+
+    enterFullscreen();
 
     const q = query(
       collection(db, "questions"),
@@ -141,29 +150,76 @@ function StudentExam() {
 
       setSubmitted(true);
       clearInterval(timerRef.current);
+
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      }
+
       alert("Exam submitted successfully");
     },
     [answers, questions, selectedRound, selectedExamId, submitted]
   );
 
-  /* ---------------- AUTO SUBMIT ---------------- */
+  /* ---------------- AUTO SUBMIT (TIME) ---------------- */
   useEffect(() => {
     if (timeLeft === 0 && questions.length > 0 && !submitted) {
       handleSubmit(true);
     }
   }, [timeLeft, questions.length, submitted, handleSubmit]);
 
+  /* ---------------- TAB / REFRESH CONTROL ---------------- */
+  useEffect(() => {
+    if (!selectedRound || submitted) return;
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        violationCount.current += 1;
+
+        if (violationCount.current === 1) {
+          alert("Warning: Do not switch tabs or minimize the exam.");
+        } else {
+          alert("Multiple violations detected. Exam auto-submitted.");
+          handleSubmit(true);
+        }
+      }
+    };
+
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = "Your exam will be submitted if you leave.";
+    };
+
+    const onKeyDown = (e) => {
+      if (
+        e.key === "F5" ||
+        (e.ctrlKey && e.key === "r") ||
+        (e.metaKey && e.key === "r")
+      ) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [selectedRound, submitted, handleSubmit]);
+
   /* ---------------- UI ---------------- */
   const currentQuestion = questions[currentIndex];
 
   return (
     <Layout title="Online Examination">
-      {/* -------- SELECT EXAM -------- */}
       {!selectedRound && (
         <>
           <h3>Select Exam</h3>
           <select
-            style={{ padding: 10, width: "100%", marginBottom: 20 }}
+            style={{ padding: 10, width: "100%" }}
             onChange={(e) => {
               setSelectedExamId(e.target.value);
               fetchRounds(e.target.value);
@@ -181,16 +237,14 @@ function StudentExam() {
             <div
               key={r.id}
               style={{
-                border: "1px solid #e5e7eb",
+                marginTop: 16,
                 padding: 16,
-                marginBottom: 12,
+                border: "1px solid #e5e7eb",
                 borderRadius: 6,
               }}
             >
-              <b>Round {r.roundNumber}</b>
-              <br />
-              Duration: {r.durationMinutes} minutes
-              <br />
+              <b>Round {r.roundNumber}</b><br />
+              Duration: {r.durationMinutes} minutes<br />
               {alreadyAttempted ? (
                 <Badge text="Already Attempted" type="fail" />
               ) : (
@@ -203,36 +257,29 @@ function StudentExam() {
         </>
       )}
 
-      {/* -------- EXAM INTERFACE -------- */}
       {selectedRound && !submitted && currentQuestion && (
         <>
-          {/* Top Bar */}
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
-              alignItems: "center",
+              marginBottom: 20,
               borderBottom: "1px solid #e5e7eb",
               paddingBottom: 10,
-              marginBottom: 20,
             }}
           >
             <div>
-              <b>Round {selectedRound.roundNumber}</b>
-              <div>
-                Question {currentIndex + 1} of {questions.length}
-              </div>
+              <b>Round {selectedRound.roundNumber}</b><br />
+              Question {currentIndex + 1} of {questions.length}
             </div>
             <Timer seconds={timeLeft} />
           </div>
 
-          {/* Question */}
           <div
             style={{
-              background: "#ffffff",
+              background: "#fff",
               padding: 24,
               borderRadius: 8,
-              minHeight: 200,
             }}
           >
             <h3>{currentQuestion.questionText}</h3>
@@ -242,7 +289,7 @@ function StudentExam() {
                 key={idx}
                 style={{
                   display: "block",
-                  padding: "10px 12px",
+                  padding: 12,
                   marginBottom: 8,
                   border: "1px solid #d1d5db",
                   borderRadius: 6,
@@ -255,7 +302,6 @@ function StudentExam() {
               >
                 <input
                   type="radio"
-                  name={currentQuestion.id}
                   checked={answers[currentQuestion.id] === idx}
                   onChange={() =>
                     setAnswers({
@@ -270,7 +316,6 @@ function StudentExam() {
             ))}
           </div>
 
-          {/* Navigation */}
           <div
             style={{
               display: "flex",
