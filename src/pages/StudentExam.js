@@ -6,6 +6,8 @@ import {
   query,
   where,
   addDoc,
+  updateDoc,
+  doc,
 } from "firebase/firestore";
 
 function StudentExam() {
@@ -19,11 +21,11 @@ function StudentExam() {
   const [selectedRoundId, setSelectedRoundId] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
-  /* ---------------- TIMER STATE ---------------- */
-  const [timeLeft, setTimeLeft] = useState(0); // seconds
+  /* ---------------- TIMER ---------------- */
+  const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef(null);
 
-  /* ---------------- FETCH PUBLIC EXAMS ---------------- */
+  /* ---------------- FETCH EXAMS ---------------- */
   const fetchPublicExams = async () => {
     const q = query(
       collection(db, "exams"),
@@ -44,14 +46,12 @@ function StudentExam() {
     setRounds(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
   };
 
-  /* ---------------- FETCH QUESTIONS + START TIMER ---------------- */
+  /* ---------------- FETCH QUESTIONS ---------------- */
   const fetchQuestions = async (roundId) => {
     const round = rounds.find((r) => r.id === roundId);
     if (!round) return;
 
-    // set timer from round duration
-    const durationInSeconds = round.durationMinutes * 60;
-    setTimeLeft(durationInSeconds);
+    setTimeLeft(round.durationMinutes * 60);
 
     const q = query(
       collection(db, "questions"),
@@ -61,18 +61,7 @@ function StudentExam() {
     setQuestions(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
   };
 
-  /* ---------------- CHECK ATTEMPT ---------------- */
-  const checkAttemptExists = async (roundId) => {
-    const q = query(
-      collection(db, "attempts"),
-      where("roundId", "==", roundId),
-      where("userId", "==", auth.currentUser.uid)
-    );
-    const snapshot = await getDocs(q);
-    return !snapshot.empty;
-  };
-
-  /* ---------------- START TIMER ---------------- */
+  /* ---------------- TIMER ---------------- */
   useEffect(() => {
     if (timeLeft <= 0 || submitted) {
       clearInterval(timerRef.current);
@@ -80,57 +69,92 @@ function StudentExam() {
     }
 
     timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
+      setTimeLeft((t) => t - 1);
     }, 1000);
 
     return () => clearInterval(timerRef.current);
   }, [timeLeft, submitted]);
 
-  /* ---------------- AUTO SUBMIT ---------------- */
   useEffect(() => {
     if (timeLeft === 0 && questions.length > 0 && !submitted) {
       handleSubmit(true);
     }
   }, [timeLeft]);
 
-  /* ---------------- SUBMIT EXAM ---------------- */
-  const handleSubmit = async (auto = false) => {
-    if (!selectedRoundId || submitted) return;
-
-    const alreadyAttempted = await checkAttemptExists(selectedRoundId);
-    if (alreadyAttempted) {
-      alert("You already attempted this round");
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, "attempts"), {
-        userId: auth.currentUser.uid,
-        examId: selectedExamId,
-        roundId: selectedRoundId,
-        answers,
-        submittedAt: new Date(),
-        autoSubmitted: auto,
-      });
-
-      setSubmitted(true);
-      clearInterval(timerRef.current);
-      alert(auto ? "Time up! Exam auto-submitted." : "Exam submitted successfully");
-    } catch (error) {
-      console.error("Submit error:", error);
-    }
+  /* ---------------- SCORE CALCULATION ---------------- */
+  const calculateScore = () => {
+    let score = 0;
+    questions.forEach((q) => {
+      if (answers[q.id] === q.correctOptionIndex) {
+        score += 1;
+      }
+    });
+    return score;
   };
 
-  /* ---------------- INITIAL LOAD ---------------- */
+  /* ---------------- SUBMIT EXAM ---------------- */
+  const handleSubmit = async (auto = false) => {
+    if (submitted) return;
+
+    const score = calculateScore();
+
+    // Save attempt first
+    const attemptRef = await addDoc(collection(db, "attempts"), {
+      userId: auth.currentUser.uid,
+      examId: selectedExamId,
+      roundId: selectedRoundId,
+      answers,
+      score,
+      autoSubmitted: auto,
+      submittedAt: new Date(),
+    });
+
+    // Fetch all attempts of this round
+    const q = query(
+      collection(db, "attempts"),
+      where("roundId", "==", selectedRoundId)
+    );
+    const snapshot = await getDocs(q);
+
+    const attempts = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
+
+    // Sort by score
+    const sorted = [...attempts].sort((a, b) => a.score - b.score);
+
+    // Fetch cutoff
+    const round = rounds.find((r) => r.id === selectedRoundId);
+    const cutoff = round.cutoffPercentile;
+
+    // Update percentiles
+    for (let i = 0; i < sorted.length; i++) {
+      const percentile =
+        (i / sorted.length) * 100;
+
+      const qualified = percentile >= cutoff;
+
+      await updateDoc(doc(db, "attempts", sorted[i].id), {
+        percentile: Math.round(percentile),
+        qualified,
+      });
+    }
+
+    setSubmitted(true);
+    clearInterval(timerRef.current);
+    alert(auto ? "Time up! Exam auto-submitted." : "Exam submitted successfully");
+  };
+
+  /* ---------------- INIT ---------------- */
   useEffect(() => {
     fetchPublicExams();
   }, []);
 
-  /* ---------------- FORMAT TIME ---------------- */
-  const formatTime = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec < 10 ? "0" : ""}${sec}`;
   };
 
   /* ---------------- UI ---------------- */
@@ -138,79 +162,68 @@ function StudentExam() {
     <div style={{ padding: 20 }}>
       <h2>Attempt Exam</h2>
 
-      {/* -------- SELECT EXAM -------- */}
-      <h3>Select Exam</h3>
       <select
         value={selectedExamId}
         onChange={(e) => {
-          const examId = e.target.value;
-          setSelectedExamId(examId);
+          const id = e.target.value;
+          setSelectedExamId(id);
           setSelectedRoundId("");
           setQuestions([]);
           setAnswers({});
           setSubmitted(false);
           setTimeLeft(0);
-          fetchRounds(examId);
+          fetchRounds(id);
         }}
       >
         <option value="">Select Exam</option>
-        {exams.map((exam) => (
-          <option key={exam.id} value={exam.id}>
-            {exam.title}
+        {exams.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.title}
           </option>
         ))}
       </select>
 
       <hr />
 
-      {/* -------- SELECT ROUND -------- */}
-      {rounds.length > 0 && <h3>Select Round</h3>}
       <select
         value={selectedRoundId}
         onChange={(e) => {
-          const roundId = e.target.value;
-          setSelectedRoundId(roundId);
+          const id = e.target.value;
+          setSelectedRoundId(id);
           setQuestions([]);
           setAnswers({});
           setSubmitted(false);
           clearInterval(timerRef.current);
-          fetchQuestions(roundId);
+          fetchQuestions(id);
         }}
       >
         <option value="">Select Round</option>
-        {rounds.map((round) => (
-          <option key={round.id} value={round.id}>
-            Round {round.roundNumber} ({round.isPaid ? "Paid" : "Free"})
+        {rounds.map((r) => (
+          <option key={r.id} value={r.id}>
+            Round {r.roundNumber}
           </option>
         ))}
       </select>
 
       <hr />
 
-      {/* -------- TIMER -------- */}
       {timeLeft > 0 && !submitted && (
         <h3 style={{ color: timeLeft < 60 ? "red" : "black" }}>
           Time Left: {formatTime(timeLeft)}
         </h3>
       )}
 
-      {/* -------- QUESTIONS -------- */}
-      {questions.length > 0 && <h3>Questions</h3>}
-
-      {questions.map((q, index) => (
-        <div key={q.id} style={{ marginBottom: 15 }}>
-          <p>
-            <b>Q{index + 1}:</b> {q.questionText}
-          </p>
-
-          {q.options.map((opt, i) => (
-            <div key={i}>
+      {questions.map((q, i) => (
+        <div key={q.id}>
+          <p><b>Q{i + 1}:</b> {q.questionText}</p>
+          {q.options.map((opt, idx) => (
+            <div key={idx}>
               <input
                 type="radio"
                 name={q.id}
-                checked={answers[q.id] === i}
+                checked={answers[q.id] === idx}
                 onChange={() =>
-                  setAnswers({ ...answers, [q.id]: i })
+                  setAnswers({ ...answers, [q.id]: idx })
                 }
               />
               {opt}
@@ -220,7 +233,9 @@ function StudentExam() {
       ))}
 
       {questions.length > 0 && !submitted && (
-        <button onClick={() => handleSubmit(false)}>Submit Exam</button>
+        <button onClick={() => handleSubmit(false)}>
+          Submit Exam
+        </button>
       )}
 
       {submitted && <p>Exam submitted</p>}
