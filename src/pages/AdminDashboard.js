@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
-import { collection, addDoc, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 
 function AdminDashboard() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [isPublic, setIsPublic] = useState(true);
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // LOGOUT
   const handleLogout = async () => {
     await signOut(auth);
     window.location.href = "/";
@@ -17,7 +25,7 @@ function AdminDashboard() {
   // CREATE EXAM
   const handleCreateExam = async () => {
     if (!title || !description) {
-      alert("Title and description required");
+      alert("Title and description are required");
       return;
     }
 
@@ -25,23 +33,28 @@ function AdminDashboard() {
       await addDoc(collection(db, "exams"), {
         title,
         description,
+        isPublic,
         isActive: true,
         createdBy: auth.currentUser.uid,
         createdAt: new Date(),
       });
 
+      // reset form
       setTitle("");
       setDescription("");
+      setIsPublic(true);
+
+      // refresh list
       fetchMyExams();
     } catch (error) {
       console.error("Error creating exam:", error);
+      alert("Failed to create exam");
     }
   };
 
-  // READ EXAMS CREATED BY THIS ADMIN
+  // READ ONLY MY EXAMS
   const fetchMyExams = async () => {
     setLoading(true);
-
     try {
       const examsRef = collection(db, "exams");
       const q = query(
@@ -91,6 +104,16 @@ function AdminDashboard() {
       />
       <br /><br />
 
+      <label>
+        <input
+          type="checkbox"
+          checked={isPublic}
+          onChange={(e) => setIsPublic(e.target.checked)}
+        />
+        &nbsp; Make this exam public
+      </label>
+
+      <br /><br />
       <button onClick={handleCreateExam}>Create Exam</button>
 
       <hr />
@@ -103,9 +126,20 @@ function AdminDashboard() {
 
       {!loading &&
         exams.map((exam) => (
-          <div key={exam.id} style={{ marginBottom: "10px" }}>
+          <div
+            key={exam.id}
+            style={{
+              border: "1px solid #ccc",
+              padding: 10,
+              marginBottom: 10,
+            }}
+          >
             <strong>{exam.title}</strong>
             <p>{exam.description}</p>
+            <p>
+              Visibility:{" "}
+              <b>{exam.isPublic ? "Public" : "Private"}</b>
+            </p>
           </div>
         ))}
     </div>
