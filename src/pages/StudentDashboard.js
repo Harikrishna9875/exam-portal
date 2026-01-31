@@ -1,90 +1,60 @@
 import { useEffect, useState } from "react";
-import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import Layout from "../components/Layout";
+import Card from "../components/ui/Card";
+import Button from "../components/ui/Button";
 
 function StudentDashboard() {
   const [exams, setExams] = useState([]);
-  const [loading, setLoading] = useState(true);
 
-  // LOGOUT
-  const handleLogout = async () => {
-    await signOut(auth);
-    window.location.href = "/";
-  };
-
-  // FETCH ONLY PUBLIC EXAMS
-  const fetchPublicExams = async () => {
-    setLoading(true);
-    try {
-      const examsRef = collection(db, "exams");
-      const q = query(examsRef, where("isPublic", "==", true));
-
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      setExams(data);
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching exams:", error);
-      setLoading(false);
-    }
+  /* ---------------- FETCH EXAMS ---------------- */
+  const fetchExams = async () => {
+    const q = query(
+      collection(db, "exams"),
+      where("isPublic", "==", true)
+    );
+    const snapshot = await getDocs(q);
+    setExams(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
   };
 
   useEffect(() => {
-    fetchPublicExams();
+    fetchExams();
   }, []);
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Student Dashboard</h2>
-      <button onClick={handleLogout}>Logout</button>
+    <Layout title="Student Dashboard">
+      <h2>Available Exams</h2>
 
-      <hr />
+      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+        <Button onClick={() => window.location.href = "/student/exams"}>
+          Attempt Exam
+        </Button>
 
-      <h3>Available Exams</h3>
+        <Button
+          type="secondary"
+          onClick={() => window.location.href = "/student/results"}
+        >
+          View My Results
+        </Button>
 
-      {loading && <p>Loading exams...</p>}
-      <a href="/student/exam">
-  <button>Attempt Exam</button>
-</a>
+        <Button
+          type="secondary"
+          onClick={() => window.location.href = "/student/certificates"}
+        >
+          My Certificates
+        </Button>
+      </div>
 
-<a href="/student/results">
-  <button>View My Results</button>
-</a>
-<a href="/student/certificates">
-  <button>My Certificates</button>
-</a>
+      {exams.length === 0 && <p>No exams available</p>}
 
-
-
-      {!loading && exams.length === 0 && (
-        <p>No public exams available</p>
-      )}
-
-      {!loading &&
-        exams.map((exam) => (
-          <div
-            key={exam.id}
-            style={{
-              border: "1px solid #ccc",
-              padding: 10,
-              marginBottom: 10,
-            }}
-          >
-            <strong>{exam.title}</strong>
-            <p>{exam.description}</p>
-          </div>
-        ))}
-    </div>
+      {exams.map(exam => (
+        <Card key={exam.id}>
+          <h3>{exam.title}</h3>
+          <p>{exam.description}</p>
+        </Card>
+      ))}
+    </Layout>
   );
 }
 
