@@ -53,6 +53,10 @@ function StudentDashboard() {
       <h3>Available Exams</h3>
 
       {loading && <p>Loading exams...</p>}
+      <a href="/student/exam">
+  <button>Attempt Exam</button>
+</a>
+
 
       {!loading && exams.length === 0 && (
         <p>No public exams available</p>
