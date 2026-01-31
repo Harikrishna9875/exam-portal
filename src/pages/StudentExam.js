@@ -25,6 +25,10 @@ function StudentExam() {
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef(null);
 
+  /* 🔴 ANTI-CHEAT STATE */
+  const [tabViolations, setTabViolations] = useState(0);
+  const MAX_TAB_VIOLATIONS = 2;
+
   /* ---------------- FETCH EXAMS ---------------- */
   const fetchExams = async () => {
     const q = query(collection(db, "exams"), where("isPublic", "==", true));
@@ -50,7 +54,7 @@ function StudentExam() {
     return !snap.empty;
   };
 
-  /* ---------------- LOAD QUESTIONS ---------------- */
+  /* ---------------- START EXAM ---------------- */
   const startExam = async (round) => {
     if (await checkAttempt(round.id)) {
       setAlreadyAttempted(true);
@@ -61,9 +65,13 @@ function StudentExam() {
     setSelectedRound(round);
     setAnswers({});
     setSubmitted(false);
+    setTabViolations(0);
     setTimeLeft(round.durationMinutes * 60);
 
-    const q = query(collection(db, "questions"), where("roundId", "==", round.id));
+    const q = query(
+      collection(db, "questions"),
+      where("roundId", "==", round.id)
+    );
     const snap = await getDocs(q);
     setQuestions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
@@ -92,7 +100,7 @@ function StudentExam() {
   };
 
   /* ---------------- SUBMIT ---------------- */
-  const handleSubmit = async (auto = false) => {
+  const handleSubmit = async (auto = false, reason = "") => {
     if (submitted) return;
 
     const score = calculateScore();
@@ -104,11 +112,15 @@ function StudentExam() {
       answers,
       score,
       autoSubmitted: auto,
+      antiCheatReason: reason,
       submittedAt: new Date(),
     });
 
-    // Percentile calculation
-    const q = query(collection(db, "attempts"), where("roundId", "==", selectedRound.id));
+    // Percentile
+    const q = query(
+      collection(db, "attempts"),
+      where("roundId", "==", selectedRound.id)
+    );
     const snap = await getDocs(q);
     const attempts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
@@ -125,27 +137,77 @@ function StudentExam() {
 
     setSubmitted(true);
     clearInterval(timerRef.current);
-    alert(auto ? "Time up! Auto-submitted" : "Exam submitted");
+    alert(auto ? "Exam auto-submitted" : "Exam submitted");
   };
+
+  /* ---------------- AUTO SUBMIT (TIME) ---------------- */
+  useEffect(() => {
+    if (timeLeft === 0 && questions.length > 0 && !submitted) {
+      handleSubmit(true, "time_up");
+    }
+  }, [timeLeft]);
+
+  /* 🔴 TAB SWITCH DETECTION */
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (!selectedRound || submitted) return;
+
+      if (document.hidden) {
+        setTabViolations(v => {
+          const newCount = v + 1;
+
+          if (newCount > MAX_TAB_VIOLATIONS) {
+            handleSubmit(true, "tab_switch_limit");
+          } else {
+            alert(
+              `Warning ${newCount}/${MAX_TAB_VIOLATIONS}: Tab switching detected`
+            );
+          }
+          return newCount;
+        });
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [selectedRound, submitted]);
+
+  /* 🔴 DISABLE RIGHT CLICK + COPY */
+  useEffect(() => {
+    const block = e => e.preventDefault();
+    document.addEventListener("contextmenu", block);
+    document.addEventListener("copy", block);
+
+    return () => {
+      document.removeEventListener("contextmenu", block);
+      document.removeEventListener("copy", block);
+    };
+  }, []);
 
   useEffect(() => {
     fetchExams();
   }, []);
 
-  const formatTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const formatTime = s =>
+    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   /* ---------------- UI ---------------- */
   return (
     <div style={{ padding: 20 }}>
       <h2>Attempt Exam</h2>
 
-      <select onChange={e => {
-        setSelectedExamId(e.target.value);
-        fetchRounds(e.target.value);
-        setQuestions([]);
-      }}>
+      <select
+        onChange={e => {
+          setSelectedExamId(e.target.value);
+          fetchRounds(e.target.value);
+          setQuestions([]);
+        }}
+      >
         <option>Select Exam</option>
-        {exams.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
+        {exams.map(e => (
+          <option key={e.id} value={e.id}>{e.title}</option>
+        ))}
       </select>
 
       <hr />
@@ -163,7 +225,7 @@ function StudentExam() {
         </p>
       )}
 
-      {selectedRound && timeLeft > 0 && !submitted && (
+      {selectedRound && !submitted && (
         <h3>Time Left: {formatTime(timeLeft)}</h3>
       )}
 
@@ -176,7 +238,9 @@ function StudentExam() {
                 type="radio"
                 name={q.id}
                 checked={answers[q.id] === idx}
-                onChange={() => setAnswers({ ...answers, [q.id]: idx })}
+                onChange={() =>
+                  setAnswers({ ...answers, [q.id]: idx })
+                }
               />
               {opt}
             </div>
@@ -185,10 +249,12 @@ function StudentExam() {
       ))}
 
       {questions.length > 0 && !submitted && (
-        <button onClick={() => handleSubmit(false)}>Submit Exam</button>
+        <button onClick={() => handleSubmit(false)}>
+          Submit Exam
+        </button>
       )}
 
-      {submitted && <p>Exam submitted successfully</p>}
+      {submitted && <p>Exam submitted</p>}
     </div>
   );
 }
