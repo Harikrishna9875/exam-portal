@@ -57,6 +57,11 @@ function StudentDashboard() {
   <button>Attempt Exam</button>
 </a>
 
+<a href="/student/results">
+  <button>View My Results</button>
+</a>
+
+
 
       {!loading && exams.length === 0 && (
         <p>No public exams available</p>

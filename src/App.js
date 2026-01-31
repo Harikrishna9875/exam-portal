@@ -7,6 +7,8 @@ import StudentDashboard from "./pages/StudentDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminQuestions from "./pages/AdminQuestions";
 import StudentExam from "./pages/StudentExam";
+import StudentResults from "./pages/StudentResults";
+
 
 
 
@@ -32,6 +34,15 @@ function App() {
     </ProtectedRoute>
   }
 />
+<Route
+  path="/student/results"
+  element={
+    <ProtectedRoute allowedRole="student">
+      <StudentResults />
+    </ProtectedRoute>
+  }
+/>
+
 
 
 
