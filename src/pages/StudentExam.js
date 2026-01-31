@@ -6,8 +6,6 @@ import {
   query,
   where,
   addDoc,
-  updateDoc,
-  doc,
 } from "firebase/firestore";
 
 function StudentExam() {
@@ -19,13 +17,15 @@ function StudentExam() {
 
   const [selectedExamId, setSelectedExamId] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [selectedRound, setSelectedRound] = useState(null);
 
-  /* ---------------- TIMER ---------------- */
+  const [submitted, setSubmitted] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef(null);
 
-  /* ---------------- FETCH EXAMS ---------------- */
+  const [paymentDone, setPaymentDone] = useState(false);
+
+  /* ---------------- FETCH PUBLIC EXAMS ---------------- */
   const fetchPublicExams = async () => {
     const q = query(
       collection(db, "exams"),
@@ -46,16 +46,41 @@ function StudentExam() {
     setRounds(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
   };
 
-  /* ---------------- FETCH QUESTIONS ---------------- */
-  const fetchQuestions = async (roundId) => {
-    const round = rounds.find((r) => r.id === roundId);
-    if (!round) return;
+  /* ---------------- CHECK PAYMENT ---------------- */
+  const checkPayment = async (roundId) => {
+    const q = query(
+      collection(db, "payments"),
+      where("roundId", "==", roundId),
+      where("userId", "==", auth.currentUser.uid),
+      where("status", "==", "success")
+    );
+    const snapshot = await getDocs(q);
+    return !snapshot.empty;
+  };
 
+  /* ---------------- MOCK PAYMENT ---------------- */
+  const handleMockPayment = async () => {
+    await addDoc(collection(db, "payments"), {
+      userId: auth.currentUser.uid,
+      examId: selectedExamId,
+      roundId: selectedRoundId,
+      amount: 100,
+      status: "success",
+      paidAt: new Date(),
+    });
+
+    setPaymentDone(true);
+    alert("Payment successful (mock)");
+  };
+
+  /* ---------------- FETCH QUESTIONS ---------------- */
+  const fetchQuestions = async (round) => {
+    setSelectedRound(round);
     setTimeLeft(round.durationMinutes * 60);
 
     const q = query(
       collection(db, "questions"),
-      where("roundId", "==", roundId)
+      where("roundId", "==", round.id)
     );
     const snapshot = await getDocs(q);
     setQuestions(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -75,77 +100,6 @@ function StudentExam() {
     return () => clearInterval(timerRef.current);
   }, [timeLeft, submitted]);
 
-  useEffect(() => {
-    if (timeLeft === 0 && questions.length > 0 && !submitted) {
-      handleSubmit(true);
-    }
-  }, [timeLeft]);
-
-  /* ---------------- SCORE CALCULATION ---------------- */
-  const calculateScore = () => {
-    let score = 0;
-    questions.forEach((q) => {
-      if (answers[q.id] === q.correctOptionIndex) {
-        score += 1;
-      }
-    });
-    return score;
-  };
-
-  /* ---------------- SUBMIT EXAM ---------------- */
-  const handleSubmit = async (auto = false) => {
-    if (submitted) return;
-
-    const score = calculateScore();
-
-    // Save attempt first
-    const attemptRef = await addDoc(collection(db, "attempts"), {
-      userId: auth.currentUser.uid,
-      examId: selectedExamId,
-      roundId: selectedRoundId,
-      answers,
-      score,
-      autoSubmitted: auto,
-      submittedAt: new Date(),
-    });
-
-    // Fetch all attempts of this round
-    const q = query(
-      collection(db, "attempts"),
-      where("roundId", "==", selectedRoundId)
-    );
-    const snapshot = await getDocs(q);
-
-    const attempts = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    }));
-
-    // Sort by score
-    const sorted = [...attempts].sort((a, b) => a.score - b.score);
-
-    // Fetch cutoff
-    const round = rounds.find((r) => r.id === selectedRoundId);
-    const cutoff = round.cutoffPercentile;
-
-    // Update percentiles
-    for (let i = 0; i < sorted.length; i++) {
-      const percentile =
-        (i / sorted.length) * 100;
-
-      const qualified = percentile >= cutoff;
-
-      await updateDoc(doc(db, "attempts", sorted[i].id), {
-        percentile: Math.round(percentile),
-        qualified,
-      });
-    }
-
-    setSubmitted(true);
-    clearInterval(timerRef.current);
-    alert(auto ? "Time up! Exam auto-submitted." : "Exam submitted successfully");
-  };
-
   /* ---------------- INIT ---------------- */
   useEffect(() => {
     fetchPublicExams();
@@ -162,16 +116,18 @@ function StudentExam() {
     <div style={{ padding: 20 }}>
       <h2>Attempt Exam</h2>
 
+      {/* -------- SELECT EXAM -------- */}
       <select
         value={selectedExamId}
         onChange={(e) => {
           const id = e.target.value;
           setSelectedExamId(id);
           setSelectedRoundId("");
+          setSelectedRound(null);
           setQuestions([]);
           setAnswers({});
           setSubmitted(false);
-          setTimeLeft(0);
+          setPaymentDone(false);
           fetchRounds(id);
         }}
       >
@@ -185,60 +141,78 @@ function StudentExam() {
 
       <hr />
 
+      {/* -------- SELECT ROUND -------- */}
       <select
         value={selectedRoundId}
-        onChange={(e) => {
+        onChange={async (e) => {
           const id = e.target.value;
           setSelectedRoundId(id);
           setQuestions([]);
           setAnswers({});
           setSubmitted(false);
-          clearInterval(timerRef.current);
-          fetchQuestions(id);
+
+          const round = rounds.find((r) => r.id === id);
+          if (!round) return;
+
+          if (round.isPaid) {
+            const paid = await checkPayment(id);
+            setPaymentDone(paid);
+          } else {
+            setPaymentDone(true);
+          }
+
+          fetchQuestions(round);
         }}
       >
         <option value="">Select Round</option>
         {rounds.map((r) => (
           <option key={r.id} value={r.id}>
-            Round {r.roundNumber}
+            Round {r.roundNumber} ({r.isPaid ? "Paid" : "Free"})
           </option>
         ))}
       </select>
 
       <hr />
 
-      {timeLeft > 0 && !submitted && (
-        <h3 style={{ color: timeLeft < 60 ? "red" : "black" }}>
-          Time Left: {formatTime(timeLeft)}
-        </h3>
-      )}
-
-      {questions.map((q, i) => (
-        <div key={q.id}>
-          <p><b>Q{i + 1}:</b> {q.questionText}</p>
-          {q.options.map((opt, idx) => (
-            <div key={idx}>
-              <input
-                type="radio"
-                name={q.id}
-                checked={answers[q.id] === idx}
-                onChange={() =>
-                  setAnswers({ ...answers, [q.id]: idx })
-                }
-              />
-              {opt}
-            </div>
-          ))}
+      {/* -------- PAYMENT BLOCK -------- */}
+      {selectedRound?.isPaid && !paymentDone && (
+        <div style={{ border: "1px solid red", padding: 10 }}>
+          <p>This is a paid round.</p>
+          <button onClick={handleMockPayment}>
+            Pay ₹100 (Mock)
+          </button>
         </div>
-      ))}
-
-      {questions.length > 0 && !submitted && (
-        <button onClick={() => handleSubmit(false)}>
-          Submit Exam
-        </button>
       )}
 
-      {submitted && <p>Exam submitted</p>}
+      {/* -------- TIMER -------- */}
+      {paymentDone && timeLeft > 0 && !submitted && (
+        <h3>Time Left: {formatTime(timeLeft)}</h3>
+      )}
+
+      {/* -------- QUESTIONS -------- */}
+      {paymentDone &&
+        questions.map((q, i) => (
+          <div key={q.id}>
+            <p><b>Q{i + 1}:</b> {q.questionText}</p>
+            {q.options.map((opt, idx) => (
+              <div key={idx}>
+                <input
+                  type="radio"
+                  name={q.id}
+                  checked={answers[q.id] === idx}
+                  onChange={() =>
+                    setAnswers({ ...answers, [q.id]: idx })
+                  }
+                />
+                {opt}
+              </div>
+            ))}
+          </div>
+        ))}
+
+      {!paymentDone && selectedRound && (
+        <p>Complete payment to start exam.</p>
+      )}
     </div>
   );
 }
