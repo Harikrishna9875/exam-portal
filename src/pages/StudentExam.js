@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { auth, db } from "../firebase";
 import {
   collection,
@@ -6,8 +6,6 @@ import {
   query,
   where,
   addDoc,
-  updateDoc,
-  doc,
 } from "firebase/firestore";
 
 import Layout from "../components/Layout";
@@ -32,15 +30,24 @@ function StudentExam() {
   const timerRef = useRef(null);
 
   /* ---------------- FETCH EXAMS ---------------- */
-  const fetchExams = async () => {
-    const q = query(collection(db, "exams"), where("isPublic", "==", true));
-    const snap = await getDocs(q);
-    setExams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  };
+  useEffect(() => {
+    const fetchExams = async () => {
+      const q = query(
+        collection(db, "exams"),
+        where("isPublic", "==", true)
+      );
+      const snap = await getDocs(q);
+      setExams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    };
+    fetchExams();
+  }, []);
 
   /* ---------------- FETCH ROUNDS ---------------- */
   const fetchRounds = async (examId) => {
-    const q = query(collection(db, "rounds"), where("examId", "==", examId));
+    const q = query(
+      collection(db, "rounds"),
+      where("examId", "==", examId)
+    );
     const snap = await getDocs(q);
     setRounds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
@@ -58,15 +65,16 @@ function StudentExam() {
 
   /* ---------------- START EXAM ---------------- */
   const startExam = async (round) => {
-    if (await checkAttempt(round.id)) {
+    const attempted = await checkAttempt(round.id);
+    if (attempted) {
       setAlreadyAttempted(true);
       return;
     }
 
     setAlreadyAttempted(false);
     setSelectedRound(round);
-    setAnswers({});
     setSubmitted(false);
+    setAnswers({});
     setTimeLeft(round.durationMinutes * 60);
 
     const q = query(
@@ -91,69 +99,79 @@ function StudentExam() {
     return () => clearInterval(timerRef.current);
   }, [timeLeft, submitted]);
 
-  /* ---------------- SCORE ---------------- */
-  const calculateScore = () => {
-    let score = 0;
-    questions.forEach(q => {
-      if (answers[q.id] === q.correctOptionIndex) score++;
-    });
-    return score;
-  };
+  /* ---------------- SUBMIT (STABLE) ---------------- */
+  const handleSubmit = useCallback(
+    async (auto = false) => {
+      if (submitted) return;
 
-  /* ---------------- SUBMIT ---------------- */
-  const handleSubmit = async (auto = false) => {
-    if (submitted) return;
+      const totalQuestions = questions.length;
+      let attempted = 0;
+      let correct = 0;
 
-    const score = calculateScore();
+      questions.forEach(q => {
+        if (answers[q.id] !== undefined) {
+          attempted++;
+          if (answers[q.id] === q.correctOptionIndex) {
+            correct++;
+          }
+        }
+      });
 
-    const attemptRef = await addDoc(collection(db, "attempts"), {
-      userId: auth.currentUser.uid,
-      examId: selectedExamId,
-      roundId: selectedRound.id,
+      const percentile = Math.round(
+        (correct / totalQuestions) * 100
+      );
+
+      const qualified =
+        percentile >= selectedRound.cutoffPercentile;
+
+      await addDoc(collection(db, "attempts"), {
+        userId: auth.currentUser.uid,
+        examId: selectedExamId,
+        roundId: selectedRound.id,
+        totalQuestions,
+        attempted,
+        correct,
+        percentile,
+        qualified,
+        autoSubmitted: auto,
+        submittedAt: new Date(),
+      });
+
+      setSubmitted(true);
+      clearInterval(timerRef.current);
+      alert("Exam submitted successfully");
+    },
+    [
       answers,
-      score,
-      autoSubmitted: auto,
-      submittedAt: new Date(),
-    });
+      questions,
+      selectedRound,
+      selectedExamId,
+      submitted,
+    ]
+  );
 
-    const q = query(
-      collection(db, "attempts"),
-      where("roundId", "==", selectedRound.id)
-    );
-    const snap = await getDocs(q);
-    const attempts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-    const sorted = [...attempts].sort((a, b) => a.score - b.score);
-    const rank = sorted.findIndex(a => a.id === attemptRef.id);
-    const percentile = Math.round((rank / sorted.length) * 100);
-
-    const qualified = percentile >= selectedRound.cutoffPercentile;
-
-    await updateDoc(doc(db, "attempts", attemptRef.id), {
-      percentile,
-      qualified,
-    });
-
-    setSubmitted(true);
-    clearInterval(timerRef.current);
-    alert(auto ? "Time up! Exam auto-submitted" : "Exam submitted");
-  };
-
+  /* ---------------- AUTO SUBMIT ---------------- */
   useEffect(() => {
-    fetchExams();
-  }, []);
+    if (
+      timeLeft === 0 &&
+      questions.length > 0 &&
+      !submitted
+    ) {
+      handleSubmit(true);
+    }
+  }, [timeLeft, questions.length, submitted, handleSubmit]);
 
   /* ---------------- UI ---------------- */
   return (
     <Layout title="Attempt Exam">
-      {/* EXAM SELECT */}
       <Card>
         <h3>Select Exam</h3>
         <select
           style={{ padding: 8, width: "100%", marginTop: 8 }}
-          onChange={e => {
+          onChange={(e) => {
             setSelectedExamId(e.target.value);
             fetchRounds(e.target.value);
+            setRounds([]);
             setQuestions([]);
           }}
         >
@@ -166,39 +184,38 @@ function StudentExam() {
         </select>
       </Card>
 
-      {/* ROUNDS */}
       {rounds.map(r => (
         <Card key={r.id}>
           <h4>Round {r.roundNumber}</h4>
-
           {alreadyAttempted ? (
             <Badge text="Already Attempted" type="fail" />
           ) : (
-            <Button onClick={() => startExam(r)}>Start Round</Button>
+            <Button onClick={() => startExam(r)}>
+              Start Round
+            </Button>
           )}
         </Card>
       ))}
 
-      {/* TIMER */}
       {selectedRound && !submitted && (
         <Card>
           <Timer seconds={timeLeft} />
-          <Badge text="Do not switch tabs" type="warning" />
+          <Badge
+            text="Do not refresh or switch tabs"
+            type="warning"
+          />
         </Card>
       )}
 
-      {/* QUESTIONS */}
       {questions.map((q, i) => (
         <Card key={q.id}>
-          <h4>Q{i + 1}. {q.questionText}</h4>
+          <h4>
+            Q{i + 1}. {q.questionText}
+          </h4>
           {q.options.map((opt, idx) => (
             <label
               key={idx}
-              style={{
-                display: "block",
-                padding: "8px 0",
-                cursor: "pointer",
-              }}
+              style={{ display: "block", padding: "6px 0" }}
             >
               <input
                 type="radio"
@@ -215,7 +232,6 @@ function StudentExam() {
         </Card>
       ))}
 
-      {/* SUBMIT */}
       {questions.length > 0 && !submitted && (
         <Button type="danger" onClick={() => handleSubmit(false)}>
           Submit Exam
@@ -224,7 +240,10 @@ function StudentExam() {
 
       {submitted && (
         <Card>
-          <Badge text="Exam Submitted Successfully" type="success" />
+          <Badge
+            text="Exam Submitted Successfully 🎉"
+            type="success"
+          />
         </Card>
       )}
     </Layout>

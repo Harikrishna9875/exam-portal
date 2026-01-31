@@ -1,112 +1,72 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "../firebase";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
-import { signOut } from "firebase/auth";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { motion } from "framer-motion";
+
+import Layout from "../components/Layout";
+import Card from "../components/ui/Card";
+import Badge from "../components/ui/Badge";
 
 function StudentResults() {
   const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [examMap, setExamMap] = useState({});
+  const [roundMap, setRoundMap] = useState({});
 
-  /* -------- LOGOUT -------- */
-  const handleLogout = async () => {
-    await signOut(auth);
-    window.location.href = "/";
+  const fetchMeta = async () => {
+    const examsSnap = await getDocs(collection(db, "exams"));
+    const roundsSnap = await getDocs(collection(db, "rounds"));
+
+    const eMap = {};
+    examsSnap.docs.forEach(d => (eMap[d.id] = d.data().title));
+
+    const rMap = {};
+    roundsSnap.docs.forEach(d => (rMap[d.id] = d.data().roundNumber));
+
+    setExamMap(eMap);
+    setRoundMap(rMap);
   };
 
-  /* -------- FETCH RESULTS -------- */
   const fetchResults = async () => {
-    try {
-      // 1. Get attempts of this student
-      const attemptsQuery = query(
-        collection(db, "attempts"),
-        where("userId", "==", auth.currentUser.uid)
-      );
-      const attemptsSnapshot = await getDocs(attemptsQuery);
-
-      const attempts = attemptsSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      // 2. Fetch exams & rounds (for names)
-      const examsSnapshot = await getDocs(collection(db, "exams"));
-      const roundsSnapshot = await getDocs(collection(db, "rounds"));
-
-      const examsMap = {};
-      examsSnapshot.docs.forEach((doc) => {
-        examsMap[doc.id] = doc.data();
-      });
-
-      const roundsMap = {};
-      roundsSnapshot.docs.forEach((doc) => {
-        roundsMap[doc.id] = doc.data();
-      });
-
-      // 3. Merge data
-      const finalResults = attempts.map((a) => ({
-        ...a,
-        examTitle: examsMap[a.examId]?.title || "Unknown Exam",
-        roundNumber: roundsMap[a.roundId]?.roundNumber || "-",
-      }));
-
-      setResults(finalResults);
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching results:", error);
-      setLoading(false);
-    }
+    const q = query(
+      collection(db, "attempts"),
+      where("userId", "==", auth.currentUser.uid)
+    );
+    const snap = await getDocs(q);
+    setResults(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
 
   useEffect(() => {
+    fetchMeta();
     fetchResults();
   }, []);
 
-  /* -------- UI -------- */
   return (
-    <div style={{ padding: 20 }}>
-      <h2>My Exam Results</h2>
-      <button onClick={handleLogout}>Logout</button>
+    <Layout title="My Exam Results">
+      {results.map((r, i) => (
+        <motion.div
+          key={r.id}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.1 }}
+        >
+          <Card>
+            <h3>{examMap[r.examId]}</h3>
 
-      <hr />
+            <p><b>Round:</b> Round {roundMap[r.roundId]}</p>
+            <p><b>Total Questions:</b> {r.totalQuestions}</p>
+            <p><b>Attempted:</b> {r.attempted}</p>
+            <p><b>Correct:</b> {r.correct}</p>
+            <p><b>Accuracy:</b> {r.percentile}%</p>
 
-      {loading && <p>Loading results...</p>}
-
-      {!loading && results.length === 0 && (
-        <p>No exam attempts found</p>
-      )}
-
-      {!loading &&
-        results.map((r, index) => (
-          <div
-            key={r.id}
-            style={{
-              border: "1px solid #ccc",
-              padding: 12,
-              marginBottom: 12,
-            }}
-          >
-            <p><b>Exam:</b> {r.examTitle}</p>
-            <p><b>Round:</b> {r.roundNumber}</p>
-            <p><b>Score:</b> {r.score}</p>
-            <p><b>Percentile:</b> {r.percentile}%</p>
-            <p>
-              <b>Status:</b>{" "}
-              <span style={{ color: r.qualified ? "green" : "red" }}>
-                {r.qualified ? "Qualified" : "Not Qualified"}
-              </span>
-            </p>
-            <p>
-              <b>Submission:</b>{" "}
-              {r.autoSubmitted ? "Auto (Time Up)" : "Manual"}
-            </p>
-          </div>
-        ))}
-    </div>
+            {r.qualified ? (
+              <Badge text="Qualified 🎉" type="success" />
+            ) : (
+              <Badge text="Not Qualified ❌" type="fail" />
+            )}
+          </Card>
+        </motion.div>
+      ))}
+    </Layout>
   );
 }
 
