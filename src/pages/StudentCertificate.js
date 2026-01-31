@@ -6,160 +6,190 @@ import {
   query,
   where,
 } from "firebase/firestore";
-import { jsPDF } from "jspdf";
 import { signOut } from "firebase/auth";
+import { jsPDF } from "jspdf";
+import { motion } from "framer-motion";
 
+/* ---------------- COMPONENT ---------------- */
 function StudentCertificate() {
   const [qualifiedAttempts, setQualifiedAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  /* -------- LOGOUT -------- */
+  /* ---------------- LOGOUT ---------------- */
   const handleLogout = async () => {
     await signOut(auth);
     window.location.href = "/";
   };
 
-  /* -------- FETCH QUALIFIED ATTEMPTS -------- */
-  const fetchQualifiedAttempts = async () => {
-    try {
-      const q = query(
-        collection(db, "attempts"),
-        where("userId", "==", auth.currentUser.uid),
-        where("qualified", "==", true)
-      );
+  /* ---------------- FETCH DATA ---------------- */
+  useEffect(() => {
+    const fetchQualifiedAttempts = async () => {
+      try {
+        const q = query(
+          collection(db, "attempts"),
+          where("userId", "==", auth.currentUser.uid),
+          where("qualified", "==", true)
+        );
 
-      const attemptsSnapshot = await getDocs(q);
-      const attempts = attemptsSnapshot.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
+        const attemptsSnapshot = await getDocs(q);
+        const attempts = attemptsSnapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }));
 
-      // fetch exams and rounds for names
-      const examsSnap = await getDocs(collection(db, "exams"));
-      const roundsSnap = await getDocs(collection(db, "rounds"));
+        const examsSnap = await getDocs(collection(db, "exams"));
+        const roundsSnap = await getDocs(collection(db, "rounds"));
 
-      const examsMap = {};
-      examsSnap.docs.forEach((d) => (examsMap[d.id] = d.data()));
+        const examsMap = {};
+        examsSnap.docs.forEach((d) => {
+          examsMap[d.id] = d.data().title;
+        });
 
-      const roundsMap = {};
-      roundsSnap.docs.forEach((d) => (roundsMap[d.id] = d.data()));
+        const roundsMap = {};
+        roundsSnap.docs.forEach((d) => {
+          roundsMap[d.id] = d.data().roundNumber;
+        });
 
-      const finalData = attempts.map((a) => ({
-        ...a,
-        examTitle: examsMap[a.examId]?.title || "Exam",
-        roundNumber: roundsMap[a.roundId]?.roundNumber || "-",
-      }));
+        const finalData = attempts.map((a) => ({
+          ...a,
+          examTitle: examsMap[a.examId] || "Exam",
+          roundNumber: roundsMap[a.roundId] || "-",
+        }));
 
-      setQualifiedAttempts(finalData);
-      setLoading(false);
-    } catch (err) {
-      console.error(err);
-      setLoading(false);
-    }
-  };
+        setQualifiedAttempts(finalData);
+        setLoading(false);
+      } catch (err) {
+        console.error(err);
+        setLoading(false);
+      }
+    };
 
-  /* -------- GENERATE PDF -------- */
+    fetchQualifiedAttempts();
+  }, []);
+
+  /* ---------------- PDF ---------------- */
   const generateCertificate = (attempt) => {
     const doc = new jsPDF();
 
     doc.setFontSize(22);
-    doc.text("CERTIFICATE OF QUALIFICATION", 105, 30, {
-      align: "center",
-    });
+    doc.text("CERTIFICATE OF QUALIFICATION", 105, 30, { align: "center" });
 
     doc.setFontSize(14);
-    doc.text(
-      `This is to certify that`,
-      105,
-      50,
-      { align: "center" }
-    );
+    doc.text("This is to certify that", 105, 55, { align: "center" });
 
     doc.setFontSize(18);
-    doc.text(
-      auth.currentUser.email,
-      105,
-      65,
-      { align: "center" }
-    );
+    doc.text(auth.currentUser.email, 105, 70, { align: "center" });
 
     doc.setFontSize(14);
-    doc.text(
-      `has successfully qualified in`,
-      105,
-      80,
-      { align: "center" }
-    );
+    doc.text("has successfully qualified in", 105, 90, { align: "center" });
 
     doc.setFontSize(16);
     doc.text(
-      `${attempt.examTitle} - Round ${attempt.roundNumber}`,
+      `${attempt.examTitle} (Round ${attempt.roundNumber})`,
       105,
-      95,
+      105,
       { align: "center" }
     );
 
     doc.setFontSize(14);
     doc.text(
-      `with a percentile of ${attempt.percentile}%`,
+      `Accuracy: ${attempt.percentile}%`,
       105,
-      110,
+      120,
       { align: "center" }
     );
 
     doc.text(
-      `Date: ${new Date(attempt.submittedAt.seconds * 1000).toDateString()}`,
+      `Date: ${new Date(
+        attempt.submittedAt.seconds * 1000
+      ).toDateString()}`,
       105,
-      130,
+      140,
       { align: "center" }
     );
 
-    doc.text(
-      `Authorized by Exam Portal`,
-      105,
-      160,
-      { align: "center" }
-    );
+    doc.text("Authorized by Exam Portal", 105, 165, { align: "center" });
 
     doc.save(`Certificate_${attempt.examTitle}.pdf`);
   };
 
-  useEffect(() => {
-    fetchQualifiedAttempts();
-  }, []);
-
-  /* -------- UI -------- */
+  /* ---------------- UI ---------------- */
   return (
-    <div style={{ padding: 20 }}>
-      <h2>My Certificates</h2>
-      <button onClick={handleLogout}>Logout</button>
+    <div style={{ minHeight: "100vh", background: "#f4f6ff" }}>
+      {/* Header */}
+      <div
+        style={{
+          background: "#4f46e5",
+          color: "#fff",
+          padding: "16px 24px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <h2 style={{ margin: 0 }}>🏆 My Certificates</h2>
+        <button
+          onClick={handleLogout}
+          style={{
+            background: "#fff",
+            color: "#4f46e5",
+            border: "none",
+            padding: "8px 14px",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontWeight: "bold",
+          }}
+        >
+          Logout
+        </button>
+      </div>
 
-      <hr />
+      {/* Content */}
+      <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
+        {loading && <p>Loading your achievements...</p>}
 
-      {loading && <p>Loading certificates...</p>}
+        {!loading && qualifiedAttempts.length === 0 && (
+          <p>No certificates yet. Keep trying 💪</p>
+        )}
 
-      {!loading && qualifiedAttempts.length === 0 && (
-        <p>No certificates available yet</p>
-      )}
+        {!loading &&
+          qualifiedAttempts.map((a, index) => (
+            <motion.div
+              key={a.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+              style={{
+                background: "#fff",
+                borderRadius: 10,
+                padding: 20,
+                marginBottom: 16,
+                boxShadow: "0 10px 20px rgba(0,0,0,0.08)",
+              }}
+            >
+              <h3 style={{ marginTop: 0 }}>{a.examTitle}</h3>
 
-      {!loading &&
-        qualifiedAttempts.map((a) => (
-          <div
-            key={a.id}
-            style={{
-              border: "1px solid #ccc",
-              padding: 12,
-              marginBottom: 12,
-            }}
-          >
-            <p><b>Exam:</b> {a.examTitle}</p>
-            <p><b>Round:</b> {a.roundNumber}</p>
-            <p><b>Percentile:</b> {a.percentile}%</p>
-            <button onClick={() => generateCertificate(a)}>
-              Download Certificate
-            </button>
-          </div>
-        ))}
+              <p><b>Round:</b> {a.roundNumber}</p>
+              <p><b>Accuracy:</b> {a.percentile}%</p>
+
+              <button
+                onClick={() => generateCertificate(a)}
+                style={{
+                  marginTop: 10,
+                  background: "#22c55e",
+                  color: "#fff",
+                  border: "none",
+                  padding: "10px 16px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                Download Certificate 🎉
+              </button>
+            </motion.div>
+          ))}
+      </div>
     </div>
   );
 }
