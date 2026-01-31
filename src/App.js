@@ -9,6 +9,7 @@ import AdminQuestions from "./pages/AdminQuestions";
 import StudentExam from "./pages/StudentExam";
 import StudentResults from "./pages/StudentResults";
 import AdminResults from "./pages/AdminResults";
+import StudentCertificate from "./pages/StudentCertificate";
 
 
 
@@ -45,13 +46,22 @@ function App() {
          }
        />
       <Route
-  path="/admin/results"
+        path="/admin/results"
+        element={
+           <ProtectedRoute allowedRole="admin">
+             <AdminResults />
+           </ProtectedRoute>
+          }
+     />
+     <Route
+  path="/student/certificates"
   element={
-    <ProtectedRoute allowedRole="admin">
-      <AdminResults />
+    <ProtectedRoute allowedRole="student">
+      <StudentCertificate />
     </ProtectedRoute>
   }
 />
+
 
 
 

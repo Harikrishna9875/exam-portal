@@ -60,6 +60,9 @@ function StudentDashboard() {
 <a href="/student/results">
   <button>View My Results</button>
 </a>
+<a href="/student/certificates">
+  <button>My Certificates</button>
+</a>
 
 
 
