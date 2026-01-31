@@ -19,10 +19,11 @@ function AdminDashboard() {
   const [qualifiedCount, setQualifiedCount] = useState(0);
 
   const fetchData = async () => {
-    if (!auth.currentUser) return; // ✅ SAFETY
+    if (!auth.currentUser) return;
 
     const uid = auth.currentUser.uid;
 
+    // Exams created by admin
     const examsQ = query(
       collection(db, "exams"),
       where("createdBy", "==", uid)
@@ -30,6 +31,7 @@ function AdminDashboard() {
     const examsSnap = await getDocs(examsQ);
     setExams(examsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
+    // (Global counts for now – acceptable)
     const roundsSnap = await getDocs(collection(db, "rounds"));
     setRoundsCount(roundsSnap.size);
 
@@ -59,7 +61,7 @@ function AdminDashboard() {
         </Button>
       </Card>
 
-      {/* ANALYTICS */}
+      {/* QUICK STATS */}
       <div style={grid}>
         <Stat title="Total Tests" value={exams.length} />
         <Stat title="Total Rounds" value={roundsCount} />
@@ -70,13 +72,18 @@ function AdminDashboard() {
       {/* QUICK ACTIONS */}
       <div style={grid}>
         <ActionCard
-          title="Manage Questions"
+          title="📊 Analytics"
+          desc="Visual insights, charts & pass rates"
+          link="/admin/analytics"
+        />
+        <ActionCard
+          title="📝 Manage Questions"
           desc="Add MCQs for rounds"
           link="/admin/questions"
         />
         <ActionCard
-          title="View Results"
-          desc="Analyze student performance"
+          title="📋 View Results"
+          desc="See detailed student attempts"
           link="/admin/results"
         />
       </div>
@@ -102,9 +109,11 @@ function AdminDashboard() {
   );
 }
 
+/* ---------------- SMALL COMPONENTS ---------------- */
+
 const Stat = ({ title, value }) => (
   <Card>
-    <p>{title}</p>
+    <p style={{ color: "#6b7280" }}>{title}</p>
     <h2>{value}</h2>
   </Card>
 );
@@ -118,6 +127,8 @@ const ActionCard = ({ title, desc, link }) => (
     </Button>
   </Card>
 );
+
+/* ---------------- STYLES ---------------- */
 
 const grid = {
   display: "grid",
