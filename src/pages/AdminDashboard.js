@@ -1,297 +1,160 @@
 import { useEffect, useState } from "react";
-import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
+import { signOut } from "firebase/auth";
 import {
   collection,
-  addDoc,
   getDocs,
   query,
   where,
 } from "firebase/firestore";
 
+import Layout from "../components/Layout";
+import Card from "../components/ui/Card";
+import Button from "../components/ui/Button";
+import Badge from "../components/ui/Badge";
+
 function AdminDashboard() {
-  /* ---------------- AUTH ---------------- */
+  const [exams, setExams] = useState([]);
+  const [roundsCount, setRoundsCount] = useState(0);
+  const [attemptsCount, setAttemptsCount] = useState(0);
+  const [qualifiedCount, setQualifiedCount] = useState(0);
+
+  /* ---------------- LOGOUT ---------------- */
   const handleLogout = async () => {
     await signOut(auth);
     window.location.href = "/";
   };
 
-  /* ---------------- EXAM STATE ---------------- */
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [isPublic, setIsPublic] = useState(true);
-  const [exams, setExams] = useState([]);
-  const [loadingExams, setLoadingExams] = useState(true);
-
-  /* ---------------- ROUND STATE ---------------- */
-  const [selectedExamId, setSelectedExamId] = useState("");
-  const [roundNumber, setRoundNumber] = useState(1);
-  const [durationMinutes, setDurationMinutes] = useState(60);
-  const [cutoffPercentile, setCutoffPercentile] = useState(60);
-  const [isPaidRound, setIsPaidRound] = useState(false);
-  const [rounds, setRounds] = useState([]);
-
-  /* ---------------- CREATE EXAM ---------------- */
-  const handleCreateExam = async () => {
-    if (!title || !description) {
-      alert("Title and description are required");
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, "exams"), {
-        title,
-        description,
-        isPublic,
-        isActive: true,
-        createdBy: auth.currentUser.uid,
-        createdAt: new Date(),
-      });
-
-      setTitle("");
-      setDescription("");
-      setIsPublic(true);
-
-      fetchMyExams();
-    } catch (error) {
-      console.error("Error creating exam:", error);
-      alert("Failed to create exam");
-    }
-  };
-
-  /* ---------------- FETCH MY EXAMS ---------------- */
-  const fetchMyExams = async () => {
-    setLoadingExams(true);
-    try {
-      const examsRef = collection(db, "exams");
-      const q = query(
-        examsRef,
+  /* ---------------- FETCH DATA ---------------- */
+  useEffect(() => {
+    const fetchData = async () => {
+      // Exams created by this admin
+      const examsQ = query(
+        collection(db, "exams"),
         where("createdBy", "==", auth.currentUser.uid)
       );
+      const examsSnap = await getDocs(examsQ);
+      const examsData = examsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setExams(examsData);
 
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      // All rounds (count only)
+      const roundsSnap = await getDocs(collection(db, "rounds"));
+      setRoundsCount(roundsSnap.size);
 
-      setExams(data);
-      setLoadingExams(false);
-    } catch (error) {
-      console.error("Error fetching exams:", error);
-      setLoadingExams(false);
-    }
-  };
+      // Attempts + qualified
+      const attemptsSnap = await getDocs(collection(db, "attempts"));
+      setAttemptsCount(attemptsSnap.size);
 
-  /* ---------------- CREATE ROUND ---------------- */
-  const handleCreateRound = async () => {
-    if (!selectedExamId) {
-      alert("Please select an exam");
-      return;
-    }
+      const qualified = attemptsSnap.docs.filter(
+        d => d.data().qualified === true
+      ).length;
+      setQualifiedCount(qualified);
+    };
 
-    try {
-      await addDoc(collection(db, "rounds"), {
-        examId: selectedExamId,
-        roundNumber,
-        durationMinutes,
-        cutoffPercentile,
-        isPaid: isPaidRound,
-        isActive: true,
-        startTime: new Date(),
-        endTime: new Date(
-          new Date().getTime() + durationMinutes * 60000
-        ),
-        createdAt: new Date(),
-      });
-
-      setRoundNumber(roundNumber + 1);
-      fetchRounds(selectedExamId);
-    } catch (error) {
-      console.error("Error creating round:", error);
-      alert("Failed to create round");
-    }
-  };
-
-  /* ---------------- FETCH ROUNDS ---------------- */
-  const fetchRounds = async (examId) => {
-    try {
-      const roundsRef = collection(db, "rounds");
-      const q = query(roundsRef, where("examId", "==", examId));
-      const snapshot = await getDocs(q);
-
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      setRounds(data);
-    } catch (error) {
-      console.error("Error fetching rounds:", error);
-    }
-  };
-
-  /* ---------------- INITIAL LOAD ---------------- */
-  useEffect(() => {
-    fetchMyExams();
+    fetchData();
   }, []);
 
-  /* ---------------- UI ---------------- */
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Admin Dashboard</h2>
-      <button onClick={handleLogout}>Logout</button>
+    <Layout title="Admin Dashboard">
+      {/* ---------------- CREATE TEST ---------------- */}
+      <Card>
+        <h3>➕ Create New Test</h3>
+        <p>
+          A <b>test</b> is an exam that students can attempt.
+          Each test can have one or more rounds.
+        </p>
 
-      {/* -------- CREATE EXAM -------- */}
-      <hr />
-      <h3>Create New Exam</h3>
+        <ul>
+          <li>🧪 Create a test (exam)</li>
+          <li>🔁 Add rounds (time, cutoff, paid/free)</li>
+          <li>❓ Add MCQ questions</li>
+          <li>📊 Monitor student results</li>
+        </ul>
 
-      <input
-        type="text"
-        placeholder="Exam title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-      <br /><br />
+        <Button onClick={() => window.location.href = "/admin/create-test"}>
+          Create Test
+        </Button>
+      </Card>
 
-      <textarea
-        placeholder="Exam description"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
-      <br /><br />
+      {/* ---------------- ANALYTICS ---------------- */}
+      <div style={grid}>
+        <Stat title="Total Tests" value={exams.length} />
+        <Stat title="Total Rounds" value={roundsCount} />
+        <Stat title="Total Attempts" value={attemptsCount} />
+        <Stat title="Qualified Students" value={qualifiedCount} />
+      </div>
 
-      <label>
-        <input
-          type="checkbox"
-          checked={isPublic}
-          onChange={(e) => setIsPublic(e.target.checked)}
+      {/* ---------------- QUICK ACTIONS ---------------- */}
+      <div style={grid}>
+        <ActionCard
+          title="Manage Questions"
+          desc="Add or review MCQs for rounds"
+          link="/admin/questions"
         />
-        &nbsp; Make this exam public
-      </label>
+        <ActionCard
+          title="View Results"
+          desc="Analyze student performance"
+          link="/admin/results"
+        />
+      </div>
 
-      <br /><br />
-      <button onClick={handleCreateExam}>Create Exam</button>
+      {/* ---------------- MY TESTS ---------------- */}
+      <Card>
+        <h3>📂 My Tests</h3>
 
-      {/* -------- MY EXAMS -------- */}
-      <hr />
-      <h3>My Exams</h3>
+        {exams.length === 0 && <p>No tests created yet</p>}
 
-      {loadingExams && <p>Loading exams...</p>}
-      <a href="/admin/results">
-  <button>View Exam Results</button>
-</a>
-
-
-      {!loadingExams && exams.length === 0 && (
-        <p>No exams created yet</p>
-      )}
-
-      {!loadingExams &&
-        exams.map((exam) => (
-          <div
-            key={exam.id}
-            style={{
-              border: "1px solid #ccc",
-              padding: 10,
-              marginBottom: 10,
-            }}
-          >
-            <strong>{exam.title}</strong>
-            <p>{exam.description}</p>
-            <p>
-              Visibility:{" "}
-              <b>{exam.isPublic ? "Public" : "Private"}</b>
-            </p>
+        {exams.map(exam => (
+          <div key={exam.id} style={row}>
+            <div>
+              <b>{exam.title}</b>
+              <p style={{ margin: 0 }}>{exam.description}</p>
+            </div>
+            <Badge
+              text={exam.isPublic ? "Public" : "Private"}
+              type={exam.isPublic ? "success" : "warning"}
+            />
           </div>
         ))}
-
-      {/* -------- ROUND MANAGEMENT -------- */}
-      <hr />
-      <h3>Manage Rounds</h3>
-
-      <select
-        value={selectedExamId}
-        onChange={(e) => {
-          setSelectedExamId(e.target.value);
-          fetchRounds(e.target.value);
-        }}
-      >
-        <option value="">Select Exam</option>
-        {exams.map((exam) => (
-          <option key={exam.id} value={exam.id}>
-            {exam.title}
-          </option>
-        ))}
-      </select>
-
-      <br /><br />
-
-      <input
-        type="number"
-        placeholder="Round Number"
-        value={roundNumber}
-        onChange={(e) => setRoundNumber(Number(e.target.value))}
-      />
-      <br /><br />
-
-      <input
-        type="number"
-        placeholder="Duration (minutes)"
-        value={durationMinutes}
-        onChange={(e) =>
-          setDurationMinutes(Number(e.target.value))
-        }
-      />
-      <br /><br />
-
-      <input
-        type="number"
-        placeholder="Cutoff Percentile"
-        value={cutoffPercentile}
-        onChange={(e) =>
-          setCutoffPercentile(Number(e.target.value))
-        }
-      />
-      <br /><br />
-
-      <label>
-        <input
-          type="checkbox"
-          checked={isPaidRound}
-          onChange={(e) => setIsPaidRound(e.target.checked)}
-        />
-        &nbsp; Paid Round
-      </label>
-
-      <br /><br />
-      <button onClick={handleCreateRound}>Create Round</button>
-
-      {/* -------- ROUNDS LIST -------- */}
-      <hr />
-      <h4>Rounds for Selected Exam</h4>
-
-      {rounds.length === 0 && (
-        <p>No rounds created for this exam</p>
-      )}
-
-      {rounds.map((round) => (
-        <div
-          key={round.id}
-          style={{
-            border: "1px solid #999",
-            padding: 10,
-            marginBottom: 10,
-          }}
-        >
-          <p><b>Round:</b> {round.roundNumber}</p>
-          <p><b>Duration:</b> {round.durationMinutes} minutes</p>
-          <p><b>Cutoff:</b> {round.cutoffPercentile}%</p>
-          <p><b>Type:</b> {round.isPaid ? "Paid" : "Free"}</p>
-        </div>
-      ))}
-    </div>
+      </Card>
+    </Layout>
   );
 }
+
+/* ---------------- SMALL COMPONENTS ---------------- */
+
+const Stat = ({ title, value }) => (
+  <Card>
+    <p style={{ marginBottom: 6 }}>{title}</p>
+    <h2>{value}</h2>
+  </Card>
+);
+
+const ActionCard = ({ title, desc, link }) => (
+  <Card>
+    <h3>{title}</h3>
+    <p>{desc}</p>
+    <Button onClick={() => window.location.href = link}>
+      Open
+    </Button>
+  </Card>
+);
+
+/* ---------------- STYLES ---------------- */
+
+const grid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 16,
+  marginBottom: 24,
+};
+
+const row = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  borderBottom: "1px solid #eee",
+  padding: "10px 0",
+};
 
 export default AdminDashboard;
