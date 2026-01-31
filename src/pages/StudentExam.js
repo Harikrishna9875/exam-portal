@@ -10,6 +10,12 @@ import {
   doc,
 } from "firebase/firestore";
 
+import Layout from "../components/Layout";
+import Card from "../components/ui/Card";
+import Button from "../components/ui/Button";
+import Timer from "../components/ui/Timer";
+import Badge from "../components/ui/Badge";
+
 function StudentExam() {
   const [exams, setExams] = useState([]);
   const [rounds, setRounds] = useState([]);
@@ -24,10 +30,6 @@ function StudentExam() {
 
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef(null);
-
-  /* 🔴 ANTI-CHEAT STATE */
-  const [tabViolations, setTabViolations] = useState(0);
-  const MAX_TAB_VIOLATIONS = 2;
 
   /* ---------------- FETCH EXAMS ---------------- */
   const fetchExams = async () => {
@@ -65,7 +67,6 @@ function StudentExam() {
     setSelectedRound(round);
     setAnswers({});
     setSubmitted(false);
-    setTabViolations(0);
     setTimeLeft(round.durationMinutes * 60);
 
     const q = query(
@@ -100,7 +101,7 @@ function StudentExam() {
   };
 
   /* ---------------- SUBMIT ---------------- */
-  const handleSubmit = async (auto = false, reason = "") => {
+  const handleSubmit = async (auto = false) => {
     if (submitted) return;
 
     const score = calculateScore();
@@ -112,11 +113,9 @@ function StudentExam() {
       answers,
       score,
       autoSubmitted: auto,
-      antiCheatReason: reason,
       submittedAt: new Date(),
     });
 
-    // Percentile
     const q = query(
       collection(db, "attempts"),
       where("roundId", "==", selectedRound.id)
@@ -137,103 +136,70 @@ function StudentExam() {
 
     setSubmitted(true);
     clearInterval(timerRef.current);
-    alert(auto ? "Exam auto-submitted" : "Exam submitted");
+    alert(auto ? "Time up! Exam auto-submitted" : "Exam submitted");
   };
-
-  /* ---------------- AUTO SUBMIT (TIME) ---------------- */
-  useEffect(() => {
-    if (timeLeft === 0 && questions.length > 0 && !submitted) {
-      handleSubmit(true, "time_up");
-    }
-  }, [timeLeft]);
-
-  /* 🔴 TAB SWITCH DETECTION */
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (!selectedRound || submitted) return;
-
-      if (document.hidden) {
-        setTabViolations(v => {
-          const newCount = v + 1;
-
-          if (newCount > MAX_TAB_VIOLATIONS) {
-            handleSubmit(true, "tab_switch_limit");
-          } else {
-            alert(
-              `Warning ${newCount}/${MAX_TAB_VIOLATIONS}: Tab switching detected`
-            );
-          }
-          return newCount;
-        });
-      }
-    };
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [selectedRound, submitted]);
-
-  /* 🔴 DISABLE RIGHT CLICK + COPY */
-  useEffect(() => {
-    const block = e => e.preventDefault();
-    document.addEventListener("contextmenu", block);
-    document.addEventListener("copy", block);
-
-    return () => {
-      document.removeEventListener("contextmenu", block);
-      document.removeEventListener("copy", block);
-    };
-  }, []);
 
   useEffect(() => {
     fetchExams();
   }, []);
 
-  const formatTime = s =>
-    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-
   /* ---------------- UI ---------------- */
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Attempt Exam</h2>
+    <Layout title="Attempt Exam">
+      {/* EXAM SELECT */}
+      <Card>
+        <h3>Select Exam</h3>
+        <select
+          style={{ padding: 8, width: "100%", marginTop: 8 }}
+          onChange={e => {
+            setSelectedExamId(e.target.value);
+            fetchRounds(e.target.value);
+            setQuestions([]);
+          }}
+        >
+          <option>Select Exam</option>
+          {exams.map(e => (
+            <option key={e.id} value={e.id}>
+              {e.title}
+            </option>
+          ))}
+        </select>
+      </Card>
 
-      <select
-        onChange={e => {
-          setSelectedExamId(e.target.value);
-          fetchRounds(e.target.value);
-          setQuestions([]);
-        }}
-      >
-        <option>Select Exam</option>
-        {exams.map(e => (
-          <option key={e.id} value={e.id}>{e.title}</option>
-        ))}
-      </select>
-
-      <hr />
-
+      {/* ROUNDS */}
       {rounds.map(r => (
-        <div key={r.id} style={{ border: "1px solid #ccc", padding: 10 }}>
-          <p>Round {r.roundNumber}</p>
-          <button onClick={() => startExam(r)}>Attempt</button>
-        </div>
+        <Card key={r.id}>
+          <h4>Round {r.roundNumber}</h4>
+
+          {alreadyAttempted ? (
+            <Badge text="Already Attempted" type="fail" />
+          ) : (
+            <Button onClick={() => startExam(r)}>Start Round</Button>
+          )}
+        </Card>
       ))}
 
-      {alreadyAttempted && (
-        <p style={{ color: "red" }}>
-          You already attempted this round
-        </p>
-      )}
-
+      {/* TIMER */}
       {selectedRound && !submitted && (
-        <h3>Time Left: {formatTime(timeLeft)}</h3>
+        <Card>
+          <Timer seconds={timeLeft} />
+          <Badge text="Do not switch tabs" type="warning" />
+        </Card>
       )}
 
+      {/* QUESTIONS */}
       {questions.map((q, i) => (
-        <div key={q.id}>
-          <p><b>Q{i + 1}:</b> {q.questionText}</p>
+        <Card key={q.id}>
+          <h4>Q{i + 1}. {q.questionText}</h4>
           {q.options.map((opt, idx) => (
-            <div key={idx}>
+            <label
+              key={idx}
+              style={{
+                display: "block",
+                padding: "8px 0",
+                cursor: "pointer",
+              }}
+            >
               <input
                 type="radio"
                 name={q.id}
@@ -241,21 +207,27 @@ function StudentExam() {
                 onChange={() =>
                   setAnswers({ ...answers, [q.id]: idx })
                 }
+                style={{ marginRight: 8 }}
               />
               {opt}
-            </div>
+            </label>
           ))}
-        </div>
+        </Card>
       ))}
 
+      {/* SUBMIT */}
       {questions.length > 0 && !submitted && (
-        <button onClick={() => handleSubmit(false)}>
+        <Button type="danger" onClick={() => handleSubmit(false)}>
           Submit Exam
-        </button>
+        </Button>
       )}
 
-      {submitted && <p>Exam submitted</p>}
-    </div>
+      {submitted && (
+        <Card>
+          <Badge text="Exam Submitted Successfully" type="success" />
+        </Card>
+      )}
+    </Layout>
   );
 }
 

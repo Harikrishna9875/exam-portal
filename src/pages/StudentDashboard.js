@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { auth, db } from "../firebase";
+import {  db } from "../firebase";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import Layout from "../components/Layout";
 import Card from "../components/ui/Card";

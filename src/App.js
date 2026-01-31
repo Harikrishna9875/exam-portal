@@ -30,7 +30,7 @@ function App() {
   }
 />
        <Route
-         path="/student/exam"
+         path="/student/exams"
          element={
            <ProtectedRoute allowedRole="student">
              <StudentExam />
