@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { auth, db } from "../firebase";
 import {
   collection,
@@ -18,6 +18,10 @@ function StudentExam() {
   const [selectedExamId, setSelectedExamId] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState("");
   const [submitted, setSubmitted] = useState(false);
+
+  /* ---------------- TIMER STATE ---------------- */
+  const [timeLeft, setTimeLeft] = useState(0); // seconds
+  const timerRef = useRef(null);
 
   /* ---------------- FETCH PUBLIC EXAMS ---------------- */
   const fetchPublicExams = async () => {
@@ -40,8 +44,15 @@ function StudentExam() {
     setRounds(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
   };
 
-  /* ---------------- FETCH QUESTIONS ---------------- */
+  /* ---------------- FETCH QUESTIONS + START TIMER ---------------- */
   const fetchQuestions = async (roundId) => {
+    const round = rounds.find((r) => r.id === roundId);
+    if (!round) return;
+
+    // set timer from round duration
+    const durationInSeconds = round.durationMinutes * 60;
+    setTimeLeft(durationInSeconds);
+
     const q = query(
       collection(db, "questions"),
       where("roundId", "==", roundId)
@@ -61,9 +72,30 @@ function StudentExam() {
     return !snapshot.empty;
   };
 
+  /* ---------------- START TIMER ---------------- */
+  useEffect(() => {
+    if (timeLeft <= 0 || submitted) {
+      clearInterval(timerRef.current);
+      return;
+    }
+
+    timerRef.current = setInterval(() => {
+      setTimeLeft((prev) => prev - 1);
+    }, 1000);
+
+    return () => clearInterval(timerRef.current);
+  }, [timeLeft, submitted]);
+
+  /* ---------------- AUTO SUBMIT ---------------- */
+  useEffect(() => {
+    if (timeLeft === 0 && questions.length > 0 && !submitted) {
+      handleSubmit(true);
+    }
+  }, [timeLeft]);
+
   /* ---------------- SUBMIT EXAM ---------------- */
-  const handleSubmit = async () => {
-    if (!selectedRoundId) return;
+  const handleSubmit = async (auto = false) => {
+    if (!selectedRoundId || submitted) return;
 
     const alreadyAttempted = await checkAttemptExists(selectedRoundId);
     if (alreadyAttempted) {
@@ -78,10 +110,12 @@ function StudentExam() {
         roundId: selectedRoundId,
         answers,
         submittedAt: new Date(),
+        autoSubmitted: auto,
       });
 
       setSubmitted(true);
-      alert("Exam submitted successfully");
+      clearInterval(timerRef.current);
+      alert(auto ? "Time up! Exam auto-submitted." : "Exam submitted successfully");
     } catch (error) {
       console.error("Submit error:", error);
     }
@@ -91,6 +125,13 @@ function StudentExam() {
   useEffect(() => {
     fetchPublicExams();
   }, []);
+
+  /* ---------------- FORMAT TIME ---------------- */
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
 
   /* ---------------- UI ---------------- */
   return (
@@ -107,6 +148,8 @@ function StudentExam() {
           setSelectedRoundId("");
           setQuestions([]);
           setAnswers({});
+          setSubmitted(false);
+          setTimeLeft(0);
           fetchRounds(examId);
         }}
       >
@@ -130,6 +173,7 @@ function StudentExam() {
           setQuestions([]);
           setAnswers({});
           setSubmitted(false);
+          clearInterval(timerRef.current);
           fetchQuestions(roundId);
         }}
       >
@@ -142,6 +186,13 @@ function StudentExam() {
       </select>
 
       <hr />
+
+      {/* -------- TIMER -------- */}
+      {timeLeft > 0 && !submitted && (
+        <h3 style={{ color: timeLeft < 60 ? "red" : "black" }}>
+          Time Left: {formatTime(timeLeft)}
+        </h3>
+      )}
 
       {/* -------- QUESTIONS -------- */}
       {questions.length > 0 && <h3>Questions</h3>}
@@ -169,10 +220,10 @@ function StudentExam() {
       ))}
 
       {questions.length > 0 && !submitted && (
-        <button onClick={handleSubmit}>Submit Exam</button>
+        <button onClick={() => handleSubmit(false)}>Submit Exam</button>
       )}
 
-      {submitted && <p>Exam already submitted</p>}
+      {submitted && <p>Exam submitted</p>}
     </div>
   );
 }
