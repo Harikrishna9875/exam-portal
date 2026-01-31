@@ -9,7 +9,6 @@ import {
 } from "firebase/firestore";
 
 import Layout from "../components/Layout";
-import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Timer from "../components/ui/Timer";
 import Badge from "../components/ui/Badge";
@@ -25,6 +24,8 @@ function StudentExam() {
 
   const [alreadyAttempted, setAlreadyAttempted] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef(null);
@@ -75,6 +76,7 @@ function StudentExam() {
     setSelectedRound(round);
     setSubmitted(false);
     setAnswers({});
+    setCurrentIndex(0);
     setTimeLeft(round.durationMinutes * 60);
 
     const q = query(
@@ -99,7 +101,7 @@ function StudentExam() {
     return () => clearInterval(timerRef.current);
   }, [timeLeft, submitted]);
 
-  /* ---------------- SUBMIT (STABLE) ---------------- */
+  /* ---------------- SUBMIT ---------------- */
   const handleSubmit = useCallback(
     async (auto = false) => {
       if (submitted) return;
@@ -141,110 +143,164 @@ function StudentExam() {
       clearInterval(timerRef.current);
       alert("Exam submitted successfully");
     },
-    [
-      answers,
-      questions,
-      selectedRound,
-      selectedExamId,
-      submitted,
-    ]
+    [answers, questions, selectedRound, selectedExamId, submitted]
   );
 
   /* ---------------- AUTO SUBMIT ---------------- */
   useEffect(() => {
-    if (
-      timeLeft === 0 &&
-      questions.length > 0 &&
-      !submitted
-    ) {
+    if (timeLeft === 0 && questions.length > 0 && !submitted) {
       handleSubmit(true);
     }
   }, [timeLeft, questions.length, submitted, handleSubmit]);
 
   /* ---------------- UI ---------------- */
+  const currentQuestion = questions[currentIndex];
+
   return (
-    <Layout title="Attempt Exam">
-      <Card>
-        <h3>Select Exam</h3>
-        <select
-          style={{ padding: 8, width: "100%", marginTop: 8 }}
-          onChange={(e) => {
-            setSelectedExamId(e.target.value);
-            fetchRounds(e.target.value);
-            setRounds([]);
-            setQuestions([]);
-          }}
-        >
-          <option>Select Exam</option>
-          {exams.map(e => (
-            <option key={e.id} value={e.id}>
-              {e.title}
-            </option>
+    <Layout title="Online Examination">
+      {/* -------- SELECT EXAM -------- */}
+      {!selectedRound && (
+        <>
+          <h3>Select Exam</h3>
+          <select
+            style={{ padding: 10, width: "100%", marginBottom: 20 }}
+            onChange={(e) => {
+              setSelectedExamId(e.target.value);
+              fetchRounds(e.target.value);
+            }}
+          >
+            <option>Select Exam</option>
+            {exams.map(e => (
+              <option key={e.id} value={e.id}>
+                {e.title}
+              </option>
+            ))}
+          </select>
+
+          {rounds.map(r => (
+            <div
+              key={r.id}
+              style={{
+                border: "1px solid #e5e7eb",
+                padding: 16,
+                marginBottom: 12,
+                borderRadius: 6,
+              }}
+            >
+              <b>Round {r.roundNumber}</b>
+              <br />
+              Duration: {r.durationMinutes} minutes
+              <br />
+              {alreadyAttempted ? (
+                <Badge text="Already Attempted" type="fail" />
+              ) : (
+                <Button onClick={() => startExam(r)}>
+                  Start Exam
+                </Button>
+              )}
+            </div>
           ))}
-        </select>
-      </Card>
-
-      {rounds.map(r => (
-        <Card key={r.id}>
-          <h4>Round {r.roundNumber}</h4>
-          {alreadyAttempted ? (
-            <Badge text="Already Attempted" type="fail" />
-          ) : (
-            <Button onClick={() => startExam(r)}>
-              Start Round
-            </Button>
-          )}
-        </Card>
-      ))}
-
-      {selectedRound && !submitted && (
-        <Card>
-          <Timer seconds={timeLeft} />
-          <Badge
-            text="Do not refresh or switch tabs"
-            type="warning"
-          />
-        </Card>
+        </>
       )}
 
-      {questions.map((q, i) => (
-        <Card key={q.id}>
-          <h4>
-            Q{i + 1}. {q.questionText}
-          </h4>
-          {q.options.map((opt, idx) => (
-            <label
-              key={idx}
-              style={{ display: "block", padding: "6px 0" }}
-            >
-              <input
-                type="radio"
-                name={q.id}
-                checked={answers[q.id] === idx}
-                onChange={() =>
-                  setAnswers({ ...answers, [q.id]: idx })
-                }
-                style={{ marginRight: 8 }}
-              />
-              {opt}
-            </label>
-          ))}
-        </Card>
-      ))}
+      {/* -------- EXAM INTERFACE -------- */}
+      {selectedRound && !submitted && currentQuestion && (
+        <>
+          {/* Top Bar */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              borderBottom: "1px solid #e5e7eb",
+              paddingBottom: 10,
+              marginBottom: 20,
+            }}
+          >
+            <div>
+              <b>Round {selectedRound.roundNumber}</b>
+              <div>
+                Question {currentIndex + 1} of {questions.length}
+              </div>
+            </div>
+            <Timer seconds={timeLeft} />
+          </div>
 
-      {questions.length > 0 && !submitted && (
-        <Button type="danger" onClick={() => handleSubmit(false)}>
-          Submit Exam
-        </Button>
+          {/* Question */}
+          <div
+            style={{
+              background: "#ffffff",
+              padding: 24,
+              borderRadius: 8,
+              minHeight: 200,
+            }}
+          >
+            <h3>{currentQuestion.questionText}</h3>
+
+            {currentQuestion.options.map((opt, idx) => (
+              <label
+                key={idx}
+                style={{
+                  display: "block",
+                  padding: "10px 12px",
+                  marginBottom: 8,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  background:
+                    answers[currentQuestion.id] === idx
+                      ? "#eef2ff"
+                      : "#fff",
+                }}
+              >
+                <input
+                  type="radio"
+                  name={currentQuestion.id}
+                  checked={answers[currentQuestion.id] === idx}
+                  onChange={() =>
+                    setAnswers({
+                      ...answers,
+                      [currentQuestion.id]: idx,
+                    })
+                  }
+                  style={{ marginRight: 10 }}
+                />
+                {opt}
+              </label>
+            ))}
+          </div>
+
+          {/* Navigation */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: 20,
+            }}
+          >
+            <Button
+              type="secondary"
+              disabled={currentIndex === 0}
+              onClick={() => setCurrentIndex(i => i - 1)}
+            >
+              Previous
+            </Button>
+
+            {currentIndex < questions.length - 1 ? (
+              <Button onClick={() => setCurrentIndex(i => i + 1)}>
+                Next
+              </Button>
+            ) : (
+              <Button type="danger" onClick={() => handleSubmit(false)}>
+                Submit Exam
+              </Button>
+            )}
+          </div>
+        </>
       )}
 
       {submitted && (
-        <Card>
-          <Badge
-            text="Exam Submitted Successfully 🎉"
-            type="success"
-          />
-        </Card>
+        <Badge text="Exam Submitted Successfully" type="success" />
       )}
     </Layout>
   );
