@@ -79,6 +79,10 @@ if (role === "admin") {
 <button onClick={handleForgotPassword}>
   Forgot Password?
 </button>
+<br /><br />
+<p>
+  New student? <a href="/signup">Create an account</a>
+</p>
 
 
       {error && <p style={{ color: "red" }}>{error}</p>}
