@@ -16,7 +16,9 @@ import StudentExam from "./pages/StudentExam";
 import StudentResults from "./pages/StudentResults";
 import StudentCertificate from "./pages/StudentCertificate";
 
-import PublicExamPage from "./pages/PublicExamPage"; // ✅ THIS
+import PublicExamPage from "./pages/PublicExamPage"; 
+
+import StudentExamLanding from "./pages/StudentExamLanding";
 
 function App() {
   return (
@@ -102,6 +104,15 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route
+  path="/exam/:examSlug"
+  element={
+    <ProtectedRoute allowedRole="student">
+      <StudentExamLanding />
+    </ProtectedRoute>
+  }
+/>
 
         <Route
           path="/student/certificates"
