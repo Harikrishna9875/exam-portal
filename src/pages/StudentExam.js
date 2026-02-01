@@ -19,7 +19,7 @@ function StudentExam() {
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
 
-  const [selectedExamId, setSelectedExamId] = useState("");
+  const [selectedExam, setSelectedExam] = useState(null);
   const [selectedRound, setSelectedRound] = useState(null);
 
   const [alreadyAttempted, setAlreadyAttempted] = useState(false);
@@ -43,7 +43,8 @@ function StudentExam() {
     const fetchExams = async () => {
       const q = query(
         collection(db, "exams"),
-        where("isPublic", "==", true)
+        where("isPublic", "==", true),
+        where("isActive", "==", true)
       );
       const snap = await getDocs(q);
       setExams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -52,10 +53,12 @@ function StudentExam() {
   }, []);
 
   /* ---------------- FETCH ROUNDS ---------------- */
-  const fetchRounds = async (examId) => {
+  const fetchRounds = async (exam) => {
+    setSelectedExam(exam);
+
     const q = query(
       collection(db, "rounds"),
-      where("examId", "==", examId)
+      where("examId", "==", exam.id)
     );
     const snap = await getDocs(q);
     setRounds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -72,8 +75,23 @@ function StudentExam() {
     return !snap.empty;
   };
 
-  /* ---------------- START EXAM ---------------- */
+  /* ---------------- START EXAM (TIME GATED) ---------------- */
   const startExam = async (round) => {
+    const now = new Date();
+
+    const examStartAt = selectedExam.examStartAt.toDate();
+    const examEndAt = selectedExam.examEndAt.toDate();
+
+    if (now < examStartAt) {
+      alert(`Exam starts at ${examStartAt.toLocaleString()}`);
+      return;
+    }
+
+    if (now > examEndAt) {
+      alert("Exam has already ended");
+      return;
+    }
+
     const attempted = await checkAttempt(round.id);
     if (attempted) {
       setAlreadyAttempted(true);
@@ -131,12 +149,11 @@ function StudentExam() {
       });
 
       const percentile = Math.round((correct / totalQuestions) * 100);
-      const qualified =
-        percentile >= selectedRound.cutoffPercentile;
+      const qualified = percentile >= selectedRound.cutoffPercentile;
 
       await addDoc(collection(db, "attempts"), {
         userId: auth.currentUser.uid,
-        examId: selectedExamId,
+        examId: selectedExam.id,
         roundId: selectedRound.id,
         totalQuestions,
         attempted,
@@ -156,110 +173,41 @@ function StudentExam() {
 
       alert("Exam submitted successfully");
     },
-    [answers, questions, selectedRound, selectedExamId, submitted]
+    [answers, questions, selectedRound, selectedExam, submitted]
   );
 
-  /* ---------------- AUTO SUBMIT (TIME) ---------------- */
+  /* ---------------- AUTO SUBMIT ---------------- */
   useEffect(() => {
     if (timeLeft === 0 && questions.length > 0 && !submitted) {
       handleSubmit(true);
     }
   }, [timeLeft, questions.length, submitted, handleSubmit]);
 
-  /* ---------------- PROCTORING (TAB / REFRESH) ---------------- */
-  useEffect(() => {
-    if (!selectedRound || submitted) return;
-
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        violationCount.current += 1;
-
-        if (violationCount.current === 1) {
-          alert(
-            "⚠️ Warning: Do not switch tabs or minimize.\nNext violation will auto-submit."
-          );
-        } else {
-          alert("🚫 Multiple violations detected. Exam auto-submitted.");
-          handleSubmit(true);
-        }
-      }
-    };
-
-    const onBeforeUnload = (e) => {
-      e.preventDefault();
-      e.returnValue = "Leaving will submit your exam.";
-    };
-
-    const onKeyDown = (e) => {
-      if (
-        e.key === "F5" ||
-        (e.ctrlKey && e.key === "r") ||
-        (e.metaKey && e.key === "r")
-      ) {
-        e.preventDefault();
-        violationCount.current += 1;
-
-        if (violationCount.current >= 2) {
-          alert("🚫 Refresh detected. Exam auto-submitted.");
-          handleSubmit(true);
-        } else {
-          alert("⚠️ Refresh is not allowed during the exam.");
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("beforeunload", onBeforeUnload);
-    window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [selectedRound, submitted, handleSubmit]);
-
-  /* ---------------- UI ---------------- */
   const currentQuestion = questions[currentIndex];
 
+  /* ---------------- UI ---------------- */
   return (
     <Layout title="Online Examination">
       {!selectedRound && (
         <>
           <h3>Select Exam</h3>
-          <select
-            style={{ padding: 10, width: "100%" }}
-            onChange={(e) => {
-              setSelectedExamId(e.target.value);
-              fetchRounds(e.target.value);
-            }}
-          >
-            <option>Select Exam</option>
-            {exams.map(e => (
-              <option key={e.id} value={e.id}>
-                {e.title}
-              </option>
-            ))}
-          </select>
+
+          {exams.map(exam => (
+            <div key={exam.id} style={{ padding: 16, border: "1px solid #ddd", marginBottom: 12 }}>
+              <b>{exam.title}</b>
+              <p>{exam.description}</p>
+              <Button onClick={() => fetchRounds(exam)}>View Rounds</Button>
+            </div>
+          ))}
 
           {rounds.map(r => (
-            <div
-              key={r.id}
-              style={{
-                marginTop: 16,
-                padding: 16,
-                border: "1px solid #e5e7eb",
-                borderRadius: 6,
-              }}
-            >
+            <div key={r.id} style={{ marginTop: 10 }}>
               <b>Round {r.roundNumber}</b><br />
-              Duration: {r.durationMinutes} minutes<br />
+              Duration: {r.durationMinutes} min<br />
               {alreadyAttempted ? (
                 <Badge text="Already Attempted" type="fail" />
               ) : (
-                <Button onClick={() => startExam(r)}>
-                  Start Exam
-                </Button>
+                <Button onClick={() => startExam(r)}>Start Exam</Button>
               )}
             </div>
           ))}
@@ -268,94 +216,51 @@ function StudentExam() {
 
       {selectedRound && !submitted && currentQuestion && (
         <>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginBottom: 20,
-              borderBottom: "1px solid #e5e7eb",
-              paddingBottom: 10,
-            }}
-          >
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <div>
-              <b>Round {selectedRound.roundNumber}</b><br />
-              Question {currentIndex + 1} of {questions.length}
+              Round {selectedRound.roundNumber} <br />
+              Question {currentIndex + 1} / {questions.length}
             </div>
             <Timer seconds={timeLeft} />
           </div>
 
-          <div
-            style={{
-              background: "#fff",
-              padding: 24,
-              borderRadius: 8,
-            }}
-          >
-            <h3>{currentQuestion.questionText}</h3>
+          <h3>{currentQuestion.questionText}</h3>
 
-            {currentQuestion.options.map((opt, idx) => (
-              <label
-                key={idx}
-                style={{
-                  display: "block",
-                  padding: 12,
-                  marginBottom: 8,
-                  border: "1px solid #d1d5db",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  background:
-                    answers[currentQuestion.id] === idx
-                      ? "#eef2ff"
-                      : "#fff",
-                }}
-              >
-                <input
-                  type="radio"
-                  checked={answers[currentQuestion.id] === idx}
-                  onChange={() =>
-                    setAnswers({
-                      ...answers,
-                      [currentQuestion.id]: idx,
-                    })
-                  }
-                  style={{ marginRight: 10 }}
-                />
-                {opt}
-              </label>
-            ))}
-          </div>
+          {currentQuestion.options.map((opt, idx) => (
+            <label key={idx} style={{ display: "block", marginBottom: 8 }}>
+              <input
+                type="radio"
+                checked={answers[currentQuestion.id] === idx}
+                onChange={() =>
+                  setAnswers({ ...answers, [currentQuestion.id]: idx })
+                }
+              />{" "}
+              {opt}
+            </label>
+          ))}
 
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginTop: 20,
-            }}
-          >
+          <div style={{ marginTop: 20 }}>
             <Button
               type="secondary"
               disabled={currentIndex === 0}
               onClick={() => setCurrentIndex(i => i - 1)}
             >
               Previous
-            </Button>
-
+            </Button>{" "}
             {currentIndex < questions.length - 1 ? (
               <Button onClick={() => setCurrentIndex(i => i + 1)}>
                 Next
               </Button>
             ) : (
               <Button type="danger" onClick={() => handleSubmit(false)}>
-                Submit Exam
+                Submit
               </Button>
             )}
           </div>
         </>
       )}
 
-      {submitted && (
-        <Badge text="Exam Submitted Successfully" type="success" />
-      )}
+      {submitted && <Badge text="Exam Submitted Successfully" type="success" />}
     </Layout>
   );
 }
