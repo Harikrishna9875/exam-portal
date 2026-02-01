@@ -3,30 +3,33 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 
+import AdminDashboard from "./pages/AdminDashboard";
+import StudentDashboard from "./pages/StudentDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-/* ADMIN */
-import AdminDashboard from "./pages/AdminDashboard";
-import AdminCreateTest from "./pages/AdminCreateTest";
 import AdminQuestions from "./pages/AdminQuestions";
 import AdminResults from "./pages/AdminResults";
+import AdminCreateTest from "./pages/AdminCreateTest";
 import AdminAnalytics from "./pages/AdminAnalytics";
 
-/* STUDENT */
-import StudentDashboard from "./pages/StudentDashboard";
 import StudentExam from "./pages/StudentExam";
 import StudentResults from "./pages/StudentResults";
 import StudentCertificate from "./pages/StudentCertificate";
+
+import PublicExamPage from "./pages/PublicExamPage"; // ✅ THIS
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* PUBLIC */}
+        {/* -------- PUBLIC -------- */}
         <Route path="/" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
 
-        {/* ADMIN */}
+        {/* 🔑 PUBLIC EXAM LINK (NO PROTECTION) */}
+        <Route path="/exam/:examSlug" element={<PublicExamPage />} />
+
+        {/* -------- ADMIN -------- */}
         <Route
           path="/admin"
           element={
@@ -35,6 +38,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/admin/create-test"
           element={
@@ -43,6 +47,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/admin/questions"
           element={
@@ -51,6 +56,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/admin/results"
           element={
@@ -59,6 +65,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/admin/analytics"
           element={
@@ -68,7 +75,7 @@ function App() {
           }
         />
 
-        {/* STUDENT */}
+        {/* -------- STUDENT -------- */}
         <Route
           path="/student"
           element={
@@ -77,6 +84,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/student/exams"
           element={
@@ -85,6 +93,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/student/results"
           element={
@@ -93,6 +102,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/student/certificates"
           element={
