@@ -13,8 +13,20 @@ import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 
+/* ---------------- CSV PARSER ---------------- */
+const parseCSV = (text) => {
+  const lines = text.trim().split("\n");
+  const headers = lines[0].split(",").map(h => h.trim());
+
+  return lines.slice(1).map(line => {
+    const values = line.split(",").map(v => v.trim());
+    const obj = {};
+    headers.forEach((h, i) => (obj[h] = values[i]));
+    return obj;
+  });
+};
+
 function AdminQuestions() {
-  /* ---------------- STATE ---------------- */
   const [exams, setExams] = useState([]);
   const [rounds, setRounds] = useState([]);
   const [questions, setQuestions] = useState([]);
@@ -25,8 +37,8 @@ function AdminQuestions() {
   const [questionText, setQuestionText] = useState("");
   const [options, setOptions] = useState(["", "", "", ""]);
   const [correctIndex, setCorrectIndex] = useState(0);
+  const [difficulty, setDifficulty] = useState("easy");
 
-  
   /* ---------------- FETCH EXAMS ---------------- */
   useEffect(() => {
     const fetchMyExams = async () => {
@@ -40,7 +52,6 @@ function AdminQuestions() {
     fetchMyExams();
   }, []);
 
-  /* ---------------- FETCH ROUNDS ---------------- */
   const fetchRounds = async (examId) => {
     const q = query(
       collection(db, "rounds"),
@@ -50,7 +61,6 @@ function AdminQuestions() {
     setRounds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
 
-  /* ---------------- FETCH QUESTIONS ---------------- */
   const fetchQuestions = async (roundId) => {
     const q = query(
       collection(db, "questions"),
@@ -60,23 +70,16 @@ function AdminQuestions() {
     setQuestions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
 
-  /* ---------------- CREATE QUESTION ---------------- */
+  /* ---------------- MANUAL QUESTION ---------------- */
   const handleCreateQuestion = async () => {
-    if (!selectedRoundId || !questionText.trim()) {
-      alert("Please select a round and enter a question");
-      return;
-    }
-
-    if (options.some(opt => opt.trim() === "")) {
-      alert("All options must be filled");
-      return;
-    }
+    if (!selectedRoundId) return alert("Select round first");
 
     await addDoc(collection(db, "questions"), {
       roundId: selectedRoundId,
       questionText,
       options,
       correctOptionIndex: correctIndex,
+      difficulty,
       createdAt: new Date(),
     });
 
@@ -87,49 +90,62 @@ function AdminQuestions() {
     fetchQuestions(selectedRoundId);
   };
 
-  /* ---------------- UI ---------------- */
+  /* ---------------- CSV UPLOAD ---------------- */
+  const handleCSVUpload = async (file) => {
+    if (!file || !selectedRoundId) {
+      alert("Select round before uploading CSV");
+      return;
+    }
+
+    const text = await file.text();
+    const rows = parseCSV(text);
+
+    for (const r of rows) {
+      const correctMap = { A: 0, B: 1, C: 2, D: 3 };
+
+      await addDoc(collection(db, "questions"), {
+        roundId: selectedRoundId,
+        questionText: r.question,
+        options: [
+          r.optionA,
+          r.optionB,
+          r.optionC,
+          r.optionD,
+        ],
+        correctOptionIndex: correctMap[r.correct],
+        difficulty: r.difficulty || "easy",
+        createdAt: new Date(),
+      });
+    }
+
+    alert("CSV questions uploaded successfully");
+    fetchQuestions(selectedRoundId);
+  };
+
   return (
     <Layout title="Manage Questions">
-      {/* -------- EXPLANATION -------- */}
+      {/* SELECT EXAM */}
       <Card>
-        <h3>📘 How Questions Work</h3>
-        <p>
-          Each question belongs to a <b>round</b>.  
-          Students must answer these MCQs during the exam.
-        </p>
-        <ul>
-          <li>✔ One correct option per question</li>
-          <li>✔ No negative marking</li>
-          <li>✔ Used for auto-evaluation</li>
-        </ul>
-      </Card>
-
-      {/* -------- SELECT EXAM -------- */}
-      <Card>
-        <h3>1️⃣ Select Exam</h3>
+        <h3>Select Exam</h3>
         <select
           style={input}
           value={selectedExamId}
           onChange={(e) => {
             setSelectedExamId(e.target.value);
-            setSelectedRoundId("");
-            setQuestions([]);
             fetchRounds(e.target.value);
           }}
         >
           <option value="">Select Exam</option>
-          {exams.map(exam => (
-            <option key={exam.id} value={exam.id}>
-              {exam.title}
-            </option>
+          {exams.map(e => (
+            <option key={e.id} value={e.id}>{e.title}</option>
           ))}
         </select>
       </Card>
 
-      {/* -------- SELECT ROUND -------- */}
+      {/* SELECT ROUND */}
       {rounds.length > 0 && (
         <Card>
-          <h3>2️⃣ Select Round</h3>
+          <h3>Select Round</h3>
           <select
             style={input}
             value={selectedRoundId}
@@ -148,39 +164,67 @@ function AdminQuestions() {
         </Card>
       )}
 
-      {/* -------- ADD QUESTION -------- */}
+      {/* CSV UPLOAD */}
       {selectedRoundId && (
         <Card>
-          <h3>3️⃣ Add MCQ Question</h3>
+          <h3>📥 Upload Questions via CSV</h3>
+          <p style={helper}>
+            Columns: question, optionA, optionB, optionC, optionD, correct, difficulty
+          </p>
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => handleCSVUpload(e.target.files[0])}
+          />
+        </Card>
+      )}
+
+      {/* MANUAL QUESTION */}
+      {selectedRoundId && (
+        <Card>
+          <h3>Add Single Question</h3>
 
           <textarea
             style={input}
-            placeholder="Enter question text"
+            placeholder="Question text"
             value={questionText}
-            onChange={(e) => setQuestionText(e.target.value)}
+            onChange={e => setQuestionText(e.target.value)}
           />
 
-          {options.map((opt, idx) => (
-            <div key={idx} style={{ marginBottom: 8 }}>
-              <input
-                style={input}
-                placeholder={`Option ${idx + 1}`}
-                value={opt}
-                onChange={(e) => {
-                  const copy = [...options];
-                  copy[idx] = e.target.value;
-                  setOptions(copy);
-                }}
-              />
-              <label style={{ marginLeft: 10 }}>
-                <input
-                  type="radio"
-                  checked={correctIndex === idx}
-                  onChange={() => setCorrectIndex(idx)}
-                /> Correct
-              </label>
-            </div>
+          {options.map((opt, i) => (
+            <input
+              key={i}
+              style={input}
+              placeholder={`Option ${i + 1}`}
+              value={opt}
+              onChange={e => {
+                const copy = [...options];
+                copy[i] = e.target.value;
+                setOptions(copy);
+              }}
+            />
           ))}
+
+          <select
+            style={input}
+            value={correctIndex}
+            onChange={e => setCorrectIndex(+e.target.value)}
+          >
+            <option value={0}>Option A</option>
+            <option value={1}>Option B</option>
+            <option value={2}>Option C</option>
+            <option value={3}>Option D</option>
+          </select>
+
+          <select
+            style={input}
+            value={difficulty}
+            onChange={e => setDifficulty(e.target.value)}
+          >
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
 
           <Button onClick={handleCreateQuestion}>
             Add Question
@@ -188,24 +232,14 @@ function AdminQuestions() {
         </Card>
       )}
 
-      {/* -------- QUESTIONS LIST -------- */}
+      {/* QUESTIONS LIST */}
       {questions.length > 0 && (
         <Card>
-          <h3>📋 Questions in This Round</h3>
-
+          <h3>Questions</h3>
           {questions.map((q, i) => (
             <div key={q.id} style={questionBox}>
-              <p><b>Q{i + 1}.</b> {q.questionText}</p>
-              <ul>
-                {q.options.map((opt, idx) => (
-                  <li key={idx}>
-                    {opt}{" "}
-                    {idx === q.correctOptionIndex && (
-                      <Badge text="Correct" type="success" />
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <b>Q{i + 1}</b> {q.questionText}
+              <Badge text={q.difficulty} type="info" />
             </div>
           ))}
         </Card>
@@ -214,18 +248,20 @@ function AdminQuestions() {
   );
 }
 
-/* ---------------- STYLES ---------------- */
-
 const input = {
   width: "100%",
   padding: 10,
   marginBottom: 10,
 };
 
+const helper = {
+  fontSize: 13,
+  color: "#6b7280",
+};
+
 const questionBox = {
   borderBottom: "1px solid #eee",
-  paddingBottom: 10,
-  marginBottom: 10,
+  padding: "8px 0",
 };
 
 export default AdminQuestions;
