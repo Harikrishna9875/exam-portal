@@ -6,6 +6,7 @@ import {
   getDocs,
   query,
   where,
+  Timestamp,
 } from "firebase/firestore";
 
 import Layout from "../components/Layout";
@@ -13,11 +14,27 @@ import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 
+/* ---------------- UTILITY: FIX datetime-local ---------------- */
+/* Converts datetime-local string to LOCAL Date (IST safe) */
+const toLocalDate = (value) => {
+  const [date, time] = value.split("T");
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  return new Date(year, month - 1, day, hour, minute);
+};
+
 function AdminCreateTest() {
+  /* ---------------- EXAM STATE ---------------- */
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [schoolName, setSchoolName] = useState("");
   const [isPublic, setIsPublic] = useState(true);
 
+  const [examStartAt, setExamStartAt] = useState("");
+  const [examEndAt, setExamEndAt] = useState("");
+  const [resultPublishAt, setResultPublishAt] = useState("");
+
+  /* ---------------- ROUND STATE ---------------- */
   const [myExams, setMyExams] = useState([]);
   const [selectedExamId, setSelectedExamId] = useState("");
 
@@ -27,7 +44,7 @@ function AdminCreateTest() {
   const [isPaid, setIsPaid] = useState(false);
   const [rounds, setRounds] = useState([]);
 
-  /* ---------------- FETCH DATA ---------------- */
+  /* ---------------- FETCH EXAMS ---------------- */
   const fetchMyExams = async () => {
     if (!auth.currentUser) return;
 
@@ -48,24 +65,48 @@ function AdminCreateTest() {
     setRounds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   };
 
-  /* ---------------- CREATE TEST ---------------- */
+  /* ---------------- CREATE EXAM ---------------- */
   const handleCreateExam = async () => {
-    if (!title || !description) {
-      alert("Please fill all fields");
+    if (
+      !title ||
+      !description ||
+      !schoolName ||
+      !examStartAt ||
+      !examEndAt ||
+      !resultPublishAt
+    ) {
+      alert("Please fill all exam details");
       return;
     }
+
+    const slug = `${title}-${schoolName}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-");
 
     await addDoc(collection(db, "exams"), {
       title,
       description,
+      schoolName,
+      examSlug: slug,
+
+      examStartAt: Timestamp.fromDate(toLocalDate(examStartAt)),
+      examEndAt: Timestamp.fromDate(toLocalDate(examEndAt)),
+      resultPublishAt: Timestamp.fromDate(toLocalDate(resultPublishAt)),
+
       isPublic,
       isActive: true,
       createdBy: auth.currentUser.uid,
       createdAt: new Date(),
     });
 
+    // reset form
     setTitle("");
     setDescription("");
+    setSchoolName("");
+    setExamStartAt("");
+    setExamEndAt("");
+    setResultPublishAt("");
+
     fetchMyExams();
   };
 
@@ -94,27 +135,68 @@ function AdminCreateTest() {
     fetchMyExams();
   }, []);
 
+  /* ---------------- UI ---------------- */
   return (
     <Layout title="Create Test & Rounds">
       {/* ---------------- CREATE TEST ---------------- */}
       <Card>
         <h3>Create New Test</h3>
         <p style={helper}>
-          A test is the main exam (example: “Math Olympiad 2026”).
+          This defines the official exam conducted by your school or college.
         </p>
 
         <input
           style={input}
-          placeholder="Test Title (e.g. Math Olympiad 2026)"
+          placeholder="Exam Title (e.g. Maths Olympiad 2026)"
           value={title}
           onChange={e => setTitle(e.target.value)}
         />
 
+        <input
+          style={input}
+          placeholder="School / College Name"
+          value={schoolName}
+          onChange={e => setSchoolName(e.target.value)}
+        />
+
         <textarea
           style={input}
-          placeholder="Short description about this test"
+          placeholder="Short description of the exam"
           value={description}
           onChange={e => setDescription(e.target.value)}
+        />
+
+        <label>Exam Start Date & Time</label>
+        <p style={helper}>
+          Students can start attempting only after this time.
+        </p>
+        <input
+          style={input}
+          type="datetime-local"
+          value={examStartAt}
+          onChange={e => setExamStartAt(e.target.value)}
+        />
+
+        <label>Exam End Date & Time</label>
+        <p style={helper}>
+          Exam automatically closes after this time.
+        </p>
+        <input
+          style={input}
+          type="datetime-local"
+          value={examEndAt}
+          onChange={e => setExamEndAt(e.target.value)}
+        />
+
+        <label>Result Publish Date & Time</label>
+        <p style={helper}>
+          Results remain hidden until this time.
+        </p>
+        <input
+          style={input}
+          type="datetime-local"
+          value={resultPublishAt}
+          onChange={e => setResultPublishAt(e.target.value)}
         />
 
         <label>
@@ -123,7 +205,7 @@ function AdminCreateTest() {
             checked={isPublic}
             onChange={e => setIsPublic(e.target.checked)}
           />{" "}
-          Public Test (visible to students)
+          Public Exam (visible to students)
         </label>
 
         <br /><br />
@@ -135,7 +217,7 @@ function AdminCreateTest() {
         <Card>
           <h3>Select Test</h3>
           <p style={helper}>
-            Choose the test for which you want to create rounds.
+            Choose a test to add rounds.
           </p>
 
           <select
@@ -148,9 +230,7 @@ function AdminCreateTest() {
           >
             <option value="">Select Test</option>
             {myExams.map(e => (
-              <option key={e.id} value={e.id}>
-                {e.title}
-              </option>
+              <option key={e.id} value={e.id}>{e.title}</option>
             ))}
           </select>
         </Card>
@@ -160,44 +240,30 @@ function AdminCreateTest() {
       {selectedExamId && (
         <Card>
           <h3>Add Round</h3>
-
-          <div style={infoBox}>
-            <b>What is a Round?</b>
-            <p style={{ marginTop: 6 }}>
-              A round is a stage of the test.  
-              Example: Round 1 (Free), Round 2 (Paid), Final Round.
-            </p>
-          </div>
-
-          <label>Round Number</label>
           <p style={helper}>
-            Sequence of the round (1 = first round, 2 = next round).
+            A round is a stage of the exam (Free / Paid).
           </p>
+
           <input
             style={input}
             type="number"
+            placeholder="Round Number"
             value={roundNumber}
             onChange={e => setRoundNumber(+e.target.value)}
           />
 
-          <label>Duration (minutes)</label>
-          <p style={helper}>
-            Total time students get to complete this round.
-          </p>
           <input
             style={input}
             type="number"
+            placeholder="Duration (minutes)"
             value={durationMinutes}
             onChange={e => setDurationMinutes(+e.target.value)}
           />
 
-          <label>Cutoff Percentile</label>
-          <p style={helper}>
-            Minimum accuracy required to qualify for the next round.
-          </p>
           <input
             style={input}
             type="number"
+            placeholder="Cutoff Percentile"
             value={cutoffPercentile}
             onChange={e => setCutoffPercentile(+e.target.value)}
           />
@@ -210,11 +276,8 @@ function AdminCreateTest() {
             />{" "}
             Paid Round
           </label>
-          <p style={helper}>
-            If enabled, students must pay to attempt this round.
-          </p>
 
-          <br />
+          <br /><br />
           <Button onClick={handleCreateRound}>Add Round</Button>
         </Card>
       )}
@@ -223,7 +286,6 @@ function AdminCreateTest() {
       {rounds.length > 0 && (
         <Card>
           <h3>Existing Rounds</h3>
-
           {rounds.map(r => (
             <div key={r.id} style={row}>
               <b>Round {r.roundNumber}</b>
@@ -256,13 +318,6 @@ const helper = {
   fontSize: 13,
   color: "#6b7280",
   marginBottom: 6,
-};
-
-const infoBox = {
-  background: "#f1f5f9",
-  padding: 12,
-  borderRadius: 6,
-  marginBottom: 12,
 };
 
 export default AdminCreateTest;

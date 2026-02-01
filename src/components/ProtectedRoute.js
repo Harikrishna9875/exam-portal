@@ -9,38 +9,45 @@ function ProtectedRoute({ children, allowedRole }) {
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!mounted) return;
+
       if (!user) {
         setAuthorized(false);
         setLoading(false);
         return;
       }
 
-      const userDoc = await getDoc(doc(db, "users", user.uid));
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid));
 
-      if (!userDoc.exists()) {
-        setAuthorized(false);
-        setLoading(false);
-        return;
-      }
-
-      const role = userDoc.data().role;
-
-      if (role === allowedRole) {
-        setAuthorized(true);
-      } else {
+        if (!snap.exists()) {
+          setAuthorized(false);
+        } else {
+          setAuthorized(snap.data().role === allowedRole);
+        }
+      } catch (err) {
         setAuthorized(false);
       }
 
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, [allowedRole]);
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) {
+    return <p style={{ padding: 40 }}>Checking access…</p>;
+  }
 
-  if (!authorized) return <Navigate to="/" />;
+  if (!authorized) {
+    return <Navigate to="/" replace />;
+  }
 
   return children;
 }
