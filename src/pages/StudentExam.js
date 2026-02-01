@@ -80,11 +80,13 @@ function StudentExam() {
       return;
     }
 
+    setAlreadyAttempted(false);
     setSelectedRound(round);
     setSubmitted(false);
     setAnswers({});
     setCurrentIndex(0);
     setTimeLeft(round.durationMinutes * 60);
+    violationCount.current = 0;
 
     enterFullscreen();
 
@@ -128,10 +130,7 @@ function StudentExam() {
         }
       });
 
-      const percentile = Math.round(
-        (correct / totalQuestions) * 100
-      );
-
+      const percentile = Math.round((correct / totalQuestions) * 100);
       const qualified =
         percentile >= selectedRound.cutoffPercentile;
 
@@ -167,7 +166,7 @@ function StudentExam() {
     }
   }, [timeLeft, questions.length, submitted, handleSubmit]);
 
-  /* ---------------- TAB / REFRESH CONTROL ---------------- */
+  /* ---------------- PROCTORING (TAB / REFRESH) ---------------- */
   useEffect(() => {
     if (!selectedRound || submitted) return;
 
@@ -176,9 +175,11 @@ function StudentExam() {
         violationCount.current += 1;
 
         if (violationCount.current === 1) {
-          alert("Warning: Do not switch tabs or minimize the exam.");
+          alert(
+            "⚠️ Warning: Do not switch tabs or minimize.\nNext violation will auto-submit."
+          );
         } else {
-          alert("Multiple violations detected. Exam auto-submitted.");
+          alert("🚫 Multiple violations detected. Exam auto-submitted.");
           handleSubmit(true);
         }
       }
@@ -186,7 +187,7 @@ function StudentExam() {
 
     const onBeforeUnload = (e) => {
       e.preventDefault();
-      e.returnValue = "Your exam will be submitted if you leave.";
+      e.returnValue = "Leaving will submit your exam.";
     };
 
     const onKeyDown = (e) => {
@@ -196,6 +197,14 @@ function StudentExam() {
         (e.metaKey && e.key === "r")
       ) {
         e.preventDefault();
+        violationCount.current += 1;
+
+        if (violationCount.current >= 2) {
+          alert("🚫 Refresh detected. Exam auto-submitted.");
+          handleSubmit(true);
+        } else {
+          alert("⚠️ Refresh is not allowed during the exam.");
+        }
       }
     };
 
